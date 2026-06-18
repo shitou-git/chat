@@ -1299,6 +1299,22 @@
     chatMessages.appendChild(userMsgDiv);
     scrollToBottom(true);
 
+    // 身份类问题——直接返回预设回答，不调用 API
+    var identityPattern = /^(你|您|ni|ni hao)?[是谁叫名字叫什么身份叫做你是哪个哪一位].*[？?吗呢]?|^(你|您)是谁|你叫什么|你叫什么名字|你是哪位|你是什么|介绍一下你自己|你是谁？|你是谁\??|who are you|what are you/i;
+    var isIdentityQuestion = /(你|您)?是(谁|什么|哪位|哪个)|(你|您)叫(什么|谁|名字)|(你|您的)?名字(是|叫)|你是谁|你是哪个|自我介绍|你是谁呀|你是谁啊/.test(text);
+    if (isIdentityQuestion || identityPattern.test(text)) {
+      var aiReply = addMessageData("assistant", "我是灵知，请问有什么可以帮你的？");
+      var aiMsgDiv = document.createElement("div");
+      aiMsgDiv.className = "message ai";
+      aiMsgDiv.innerHTML = '<div class="msg-bubble">' + renderContent("我是灵知，请问有什么可以帮你的？") + "</div>";
+      chatMessages.appendChild(aiMsgDiv);
+      appendActions(aiMsgDiv.querySelector(".msg-bubble"), aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
+      scrollToBottom();
+      saveChatHistory();
+      toggleSendButton(false);
+      return;
+    }
+
     // 创建 AI 占位消息（不加入 chatData）
     var aiMsgDiv = document.createElement("div");
     aiMsgDiv.className = "message ai";
