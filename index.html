@@ -526,7 +526,7 @@
   .chat-sidebar-item:hover { background: var(--c-surface-2); }
   .chat-sidebar-item.active { background: var(--c-primary-soft); }
   .chat-sidebar-item-icon { font-size: 0.95rem; flex-shrink: 0; margin-top: 1px; }
-  .chat-sidebar-item-info { flex: 1; min-width: 0; }
+  .chat-sidebar-item-info { flex: 1; min-width: 0; padding-right: 44px; }
   .chat-sidebar-item-title {
     font-size: 0.85rem;
     font-weight: 600;
@@ -545,29 +545,31 @@
   }
   .chat-sidebar-item-delete {
     position: absolute;
-    right: 6px;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
-    background: none;
+    background: var(--c-danger);
     border: none;
-    color: var(--c-muted);
-    width: 24px; height: 24px;
+    color: #fff;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
-    font-size: 0.85rem;
+    font-size: 1.5rem;
+    font-weight: bold;
     cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
+    opacity: 1;
+    transition: background 0.15s, transform 0.15s;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    line-height: 1;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
   }
-  .chat-sidebar-item:hover .chat-sidebar-item-delete { opacity: 1; }
-  /* 触摸设备始终显示删除按钮 */
-  @media (hover: none) {
-    .chat-sidebar-item-delete { opacity: 0.6; }
+  .chat-sidebar-item-delete:hover {
+    background: var(--c-danger-dark);
+    transform: translateY(-50%) scale(1.08);
   }
-  .chat-sidebar-item-delete:hover { color: var(--c-danger); background: rgba(239, 68, 68, 0.1); }
   .chat-sidebar-empty {
     text-align: center;
     color: var(--c-muted);
