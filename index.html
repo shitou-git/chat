@@ -1556,10 +1556,26 @@
     chatMessages.appendChild(userMsgDiv);
     scrollToBottom(true);
 
-    // 身份类问题——直接返回预设回答，不调用 API
-    var identityPattern = /^(你|您|ni|ni hao)?[是谁叫名字叫什么身份叫做你是哪个哪一位].*[？?吗呢]?|^(你|您)是谁|你叫什么|你叫什么名字|你是哪位|你是什么|介绍一下你自己|你是谁？|你是谁\??|who are you|what are you/i;
-    var isIdentityQuestion = /(你|您)?是(谁|什么|哪位|哪个)|(你|您)叫(什么|谁|名字)|(你|您的)?名字(是|叫)|你是谁|你是哪个|自我介绍|你是谁呀|你是谁啊/.test(text);
-    if (isIdentityQuestion || identityPattern.test(text)) {
+    // 身份类问题——只在明确询问AI身份时触发
+    // 精确匹配完整短语，避免误判正常问题（如"青光眼是什么"）
+    var identityKeywords = [
+      "你是谁", "您是谁", "你是谁呀", "你是谁啊",
+      "你叫什么名字", "你叫啥",
+      "你的名字", "您的名字",
+      "你是哪位", "你是哪个", "你是什么东西",
+      "介绍一下你自己", "介绍一下自己", "介绍你自己", "自我介绍",
+      "who are you", "what is your name", "your name"
+    ];
+    var trimmed = text.trim().toLowerCase();
+    var isIdentityQuestion = identityKeywords.some(function (keyword) {
+      return trimmed.indexOf(keyword.toLowerCase()) !== -1;
+    });
+    // 二次验证：必须同时包含第二人称代词或英文身份词
+    if (isIdentityQuestion) {
+      var hasIdentityContext = /(你|您|who|your name)/i.test(text);
+      if (!hasIdentityContext) isIdentityQuestion = false;
+    }
+    if (isIdentityQuestion) {
       var aiReply = addMessageData("assistant", "我是灵知，请问有什么可以帮你的？");
       var aiMsgDiv = document.createElement("div");
       aiMsgDiv.className = "message ai";
