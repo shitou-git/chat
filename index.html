@@ -381,29 +381,6 @@
     display: block;
     margin-bottom: 12px;
   }
-  .chat-empty-tip .suggestions {
-    margin-top: 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    align-items: center;
-  }
-  .chat-empty-tip .suggestion {
-    background: var(--c-surface);
-    border: 1px solid var(--c-border);
-    border-radius: 16px;
-    padding: 8px 16px;
-    font-size: 0.85rem;
-    color: var(--c-primary);
-    cursor: pointer;
-    transition: all 0.2s;
-    max-width: 90%;
-  }
-  .chat-empty-tip .suggestion:hover {
-    background: var(--c-primary-soft);
-    border-color: var(--c-primary);
-    transform: translateY(-1px);
-  }
 
   /* ========== 会话侧栏 ========== */
   .chat-sidebar-overlay {
@@ -784,75 +761,12 @@
     "5. 使用 Markdown 格式组织内容（# 标题，**加粗**，- 列表等）\n" +
     "6. 严格禁止任何自我介绍，直接给出答案";
 
-  /*
-   * 奥数提示题库——每次随机展示 3 条
-   * 覆盖小学到高中常见奥数专题
-   */
-  var MATH_OLYMPIAD_PROMPTS = [
-    { icon: "📐", text: "用 LaTeX 公式推导勾股定理的证明过程" },
-    { icon: "🔢", text: "求方程 $x^2 - 5x + 6 = 0$ 的所有实数解" },
-    { icon: "🔺", text: "三角形三个内角之和为什么等于 180°？请给出证明" },
-    { icon: "🎲", text: "同时掷两枚骰子，点数之和为 7 的概率是多少？" },
-    { icon: "📊", text: "用排列组合解释：10 个人中选 3 人站成一排有多少种排法" },
-    { icon: "🧩", text: "鸡兔同笼，共有头 35 个、脚 94 只，求鸡和兔各多少只" },
-    { icon: "⏰", text: "甲乙两人分别从 A、B 两地相向而行，甲速 6km/h，乙速 4km/h，AB 相距 20km，多久后相遇？" },
-    { icon: "💎", text: "一个自然数加上 100 后是一个完全平方数，加上 168 后也是一个完全平方数，求这个数" },
-    { icon: "🔄", text: "什么是斐波那契数列？用递推公式表示并求第 10 项" },
-    { icon: "⚖️", text: "用天平称 3 次，从 12 枚硬币中找出唯一一枚假币（偏轻或偏重）" },
-    { icon: "🎯", text: "圆周率 $\pi$ 是怎么计算出来的？请介绍两种方法" },
-    { icon: "📏", text: "黄金分割比 $\phi = \\frac{1+\\sqrt{5}}{2}$ 有什么数学意义和应用？" },
-    { icon: "🧮", text: "什么是中国剩余定理？用一个具体例子说明" },
-    { icon: "🔮", text: "欧拉公式 $e^{i\\pi} + 1 = 0$ 为什么被称为最美的数学公式？" },
-    { icon: "♟️", text: "8×8 棋盘上放 8 个皇后互不攻击，共有多少种摆法？解释思路" },
-    { icon: "📍", text: "用抽屉原理证明：任意 13 人中至少有两人生日在同一个月" },
-    { icon: "🔗", text: "什么是图论中的欧拉路径？哥尼斯堡七桥问题是怎么回事？" },
-    { icon: "💡", text: "用数学归纳法证明 $1+2+3+\\cdots+n = \\frac{n(n+1)}{2}$" },
-    { icon: "🚀", text: "二次函数 $y = ax^2 + bx + c$ 的顶点坐标怎么推导？" },
-    { icon: "🌊", text: "什么是极限？用 $\\lim_{n \\to \\infty} \\frac{1}{n} = 0$ 解释" },
-    { icon: "🎨", text: "分形几何是什么？用科赫雪花的周长和面积说明" },
-    { icon: "🔑", text: "RSA 加密的数学原理是什么？费马小定理怎么起作用？" },
-    { icon: "🧠", text: "什么是反证法？用「根号 2 是无理数」的证明来说明" },
-    { icon: "🏆", text: "一个袋中有 5 红 3 白球，随机取 3 个，至少取到 2 个红球的概率？" },
-    { icon: "⚡", text: "等差数列求和公式 $S_n = \\frac{n(a_1+a_n)}{2}$ 怎么推导？" },
-    { icon: "🌟", text: "什么是勾股数组？请列出 5 组并说明生成方法" },
-    { icon: "📝", text: "解不等式 $|2x - 3| < 5$，并解释绝对值不等式的解法" },
-    { icon: "🔍", text: "什么是梅森素数？为什么 $2^p - 1$ 形式的数特别？" },
-    { icon: "🧲", text: "向量和标量的区别是什么？用物理例子说明点积的几何意义" },
-    { icon: "🎲", text: "蒙提霍尔问题：换门后赢的概率真的是 2/3 吗？请解释" },
-  ];
-
-  /** 从题库中随机抽取 n 条不重复的提示 */
-  function pickRandomPrompts(arr, n) {
-    var copy = arr.slice();
-    var result = [];
-    for (var i = 0; i < n && copy.length > 0; i++) {
-      var idx = Math.floor(Math.random() * copy.length);
-      result.push(copy.splice(idx, 1)[0]);
-    }
-    return result;
-  }
-
-  /** 生成空状态 HTML（每次随机 3 条奥数提示） */
+  /** 生成空状态 HTML */
   function buildEmptyTipHTML() {
-    var picks = pickRandomPrompts(MATH_OLYMPIAD_PROMPTS, 3);
-    var suggestionHTML = picks.map(function (p) {
-      var prompt = p.icon + " " + p.text;
-      return (
-        '<div class="suggestion" data-prompt="' +
-        escapeHtml(p.text) +
-        '" tabindex="0" role="button">' +
-        escapeHtml(prompt) +
-        "</div>"
-      );
-    }).join("");
     return (
       '<div class="chat-empty-tip">' +
       '<span class="big">👋</span>' +
-      "你好！我是你的 AI 聊天助手。<br>" +
-      "有什么问题需要我帮你解答吗？" +
-      '<div class="suggestions">' +
-      suggestionHTML +
-      "</div>" +
+      "你好！我是灵知" +
       "</div>"
     );
   }
@@ -1317,27 +1231,6 @@
 
   function renderEmptyState() {
     chatMessages.innerHTML = buildEmptyTipHTML();
-    bindSuggestions();
-  }
-
-  function bindSuggestions() {
-    var btns = chatMessages.querySelectorAll(".suggestion");
-    btns.forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var prompt = btn.getAttribute("data-prompt");
-        if (prompt) {
-          chatInput.value = prompt;
-          updateInputHeight();
-          sendMessage();
-        }
-      });
-      btn.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          btn.click();
-        }
-      });
-    });
   }
 
   /* ================================================================
