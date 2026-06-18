@@ -244,6 +244,46 @@
     .msg-delete { opacity: 1; visibility: visible; }
   }
 
+  /* ========== 长按气泡弹出菜单 ========== */
+  .msg-action-menu {
+    position: fixed;
+    background: var(--c-surface);
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+    padding: 6px;
+    z-index: 2000;
+    min-width: 140px;
+    animation: menuPop 0.2s ease;
+  }
+  @keyframes menuPop {
+    from { opacity: 0; transform: scale(0.85) translateY(4px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .msg-action-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    color: var(--c-text);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+  }
+  .msg-action-menu-item:hover {
+    background: var(--c-primary-soft);
+  }
+  .msg-action-menu-item .icon {
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+  .msg-action-menu-divider {
+    height: 1px;
+    background: var(--c-border);
+    margin: 2px 6px;
+  }
+
   /* ========== KaTeX 公式渲染 ========== */
   .katex-block {
     display: block;
@@ -1231,8 +1271,64 @@
     delBtn.title = "删除";
     delBtn.setAttribute("aria-label", "删除此消息");
     delBtn.textContent = "×";
-    delBtn.addEventListener("click", function () { confirmDeleteMessage(div); });
+    delBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      confirmDeleteMessage(div);
+    });
     bubble.appendChild(delBtn);
+
+    // 长按气泡弹出操作菜单（长按 500ms）
+    var longPressTimer = null;
+    var startX = 0;
+    var startY = 0;
+
+    function getClientX(e) {
+      if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
+      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
+      return e.clientX || 0;
+    }
+    function getClientY(e) {
+      if (e.touches && e.touches.length > 0) return e.touches[0].clientY;
+      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
+      return e.clientY || 0;
+    }
+
+    function startLongPress(e) {
+      startX = getClientX(e);
+      startY = getClientY(e);
+      longPressTimer = setTimeout(function () {
+        if (navigator.vibrate) navigator.vibrate(15);
+        showMsgActionMenu(div, bubble, msg, startX, startY);
+      }, 500);
+    }
+
+    function cancelLongPress() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+
+    function handleMove(e) {
+      if (!longPressTimer) return;
+      var cx = getClientX(e);
+      var cy = getClientY(e);
+      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) {
+        cancelLongPress();
+      }
+    }
+
+    bubble.addEventListener("touchstart", startLongPress, { passive: true });
+    bubble.addEventListener("touchend", cancelLongPress);
+    bubble.addEventListener("touchmove", handleMove, { passive: true });
+    bubble.addEventListener("touchcancel", cancelLongPress);
+    bubble.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      showMsgActionMenu(div, bubble, msg, startX, startY);
+    });
+    bubble.addEventListener("mousedown", startLongPress);
+    bubble.addEventListener("mouseup", cancelLongPress);
+    bubble.addEventListener("mouseleave", cancelLongPress);
 
     div.appendChild(bubble);
     return div;
@@ -1240,6 +1336,119 @@
 
   function renderEmptyState() {
     chatMessages.innerHTML = buildEmptyTipHTML();
+  }
+
+  /* ================================================================
+   * 长按气泡操作菜单（复制 / 删除 / 撤销）
+   * ================================================================ */
+
+  var currentActionMenu = null;
+
+  function hideMsgActionMenu() {
+    if (currentActionMenu) {
+      currentActionMenu.remove();
+      currentActionMenu = null;
+    }
+  }
+
+  function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
+    hideMsgActionMenu();
+
+    var menu = document.createElement("div");
+    menu.className = "msg-action-menu";
+
+    // 菜单项
+    var items = [
+      { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
+      { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
+    ];
+    if (msg.role === "user") {
+      items.push({ icon: "↩", label: "撤销", action: function () { undoLastMessage(msg); } });
+    }
+
+    for (var i = 0; i < items.length; i++) {
+      if (i > 0) {
+        var divider = document.createElement("div");
+        divider.className = "msg-action-menu-divider";
+        menu.appendChild(divider);
+      }
+      var itemEl = document.createElement("div");
+      itemEl.className = "msg-action-menu-item";
+      itemEl.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
+      (function (action) {
+        itemEl.addEventListener("click", function () {
+          hideMsgActionMenu();
+          action();
+        });
+      })(items[i].action);
+      menu.appendChild(itemEl);
+    }
+
+    document.body.appendChild(menu);
+
+    // 定位：根据气泡位置 + 点击位置计算，避免超出屏幕
+    var bubbleRect = bubble.getBoundingClientRect();
+    var menuRect = menu.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+
+    var posX = clickX || (bubbleRect.left + bubbleRect.width / 2);
+    var posY = bubbleRect.top + bubbleRect.height + 8;
+
+    // 水平方向修正：确保不超出屏幕
+    posX = Math.max(12, Math.min(posX, vw - menuRect.width - 12));
+
+    // 垂直方向：如果下方空间不够则显示在上方
+    if (posY + menuRect.height > vh - 12 && bubbleRect.top - menuRect.height - 8 > 12) {
+      posY = bubbleRect.top - menuRect.height - 8;
+    }
+    posY = Math.max(12, Math.min(posY, vh - menuRect.height - 12));
+
+    menu.style.left = Math.round(posX - menuRect.width / 2) + "px";
+    menu.style.top = Math.round(posY) + "px";
+
+    currentActionMenu = menu;
+  }
+
+  function copyMessageText(text) {
+    var plain = text || "";
+    if (window.clipboardData && window.clipboardData.setData) {
+      try { window.clipboardData.setData("Text", plain); } catch (e) {}
+      return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(plain).catch(function () {});
+      return;
+    }
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = plain;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    } catch (e) {}
+  }
+
+  function undoLastMessage(msg) {
+    // 撤销：从该条用户消息起删除后面的所有消息（用户消息 + 后续 AI 回复）
+    var s = currentSession();
+    if (!s) return;
+    var found = false;
+    var newMessages = [];
+    for (var i = 0; i < s.messages.length; i++) {
+      if (s.messages[i].id === msg.id) {
+        found = true;
+        continue;
+      }
+      if (found) continue;
+      newMessages.push(s.messages[i]);
+    }
+    s.messages = newMessages;
+    saveChatHistory();
+    renderCurrentSession();
   }
 
   /* ================================================================
@@ -1759,7 +1968,9 @@
     // Esc 关闭弹窗 + 焦点陷阱
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
-        if (chatConfirmOverlay.classList.contains("show")) {
+        if (currentActionMenu) {
+          hideMsgActionMenu();
+        } else if (chatConfirmOverlay.classList.contains("show")) {
           hideConfirm();
         } else if (chatSidebar.classList.contains("open")) {
           closeSidebar();
@@ -1767,6 +1978,22 @@
       }
       trapFocus(e);
     });
+
+    // 点击外部关闭操作菜单
+    document.addEventListener("click", function (e) {
+      if (currentActionMenu && !currentActionMenu.contains(e.target)) {
+        hideMsgActionMenu();
+      }
+    }, true);
+    document.addEventListener("touchstart", function (e) {
+      if (currentActionMenu && !currentActionMenu.contains(e.target)) {
+        hideMsgActionMenu();
+      }
+    }, { passive: true });
+
+    // 滚动/改变尺寸关闭操作菜单
+    window.addEventListener("scroll", hideMsgActionMenu, true);
+    window.addEventListener("resize", hideMsgActionMenu);
 
     // 页面卸载——中止请求
     window.addEventListener("beforeunload", function () {
