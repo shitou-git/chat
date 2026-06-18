@@ -27,6 +27,7 @@
     --c-scrollbar-hover: #9ca3af;
     --header-grad: linear-gradient(to bottom, #f3f0ff, var(--c-surface-2));
     --btn-grad: linear-gradient(135deg, var(--c-primary-light), var(--c-accent));
+    --header-btn-hover: rgba(0, 0, 0, 0.06);
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
     --shadow-md: 0 6px 20px rgba(124, 58, 237, 0.12);
     --shadow-lg: 0 12px 32px rgba(139, 92, 246, 0.25);
@@ -51,6 +52,7 @@
       --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
       --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.4);
       --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+      --header-btn-hover: rgba(255, 255, 255, 0.1);
     }
   }
 
@@ -86,54 +88,51 @@
   .chat-header {
     background: var(--header-grad);
     color: var(--c-text);
-    padding: 10px 16px;
+    padding: 10px 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
     flex-shrink: 0;
     box-shadow: none;
     z-index: 10;
     border-bottom: 1px solid var(--c-border);
+    position: relative;
   }
   .chat-menu-btn {
     background: transparent;
     border: none;
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     border-radius: 8px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    align-items: center;
-    gap: 4px;
+    align-items: flex-start;
+    gap: 5px;
     flex-shrink: 0;
     transition: background 0.2s;
-    padding: 0;
+    padding: 0 9px;
   }
   .chat-menu-btn span {
-    width: 22px;
-    height: 3px;
+    display: block;
+    height: 2.5px;
     background: var(--c-text);
     border-radius: 2px;
-    display: block;
   }
-  .chat-menu-btn:hover { background: rgba(124, 58, 237, 0.12); }
+  .chat-menu-btn span:first-child { width: 22px; }
+  .chat-menu-btn span:last-child { width: 14px; }
+  .chat-menu-btn:hover { background: var(--header-btn-hover); }
   .chat-header-title {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 0;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
   }
   .chat-header h2 {
-    font-size: 1.15rem;
+    font-size: 1.2rem;
     font-weight: bold;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    letter-spacing: 1px;
     margin: 0;
     color: var(--c-text);
   }
@@ -144,14 +143,13 @@
     flex-shrink: 0;
   }
   .chat-header-btn {
-    background: var(--c-primary);
+    background: transparent;
     border: none;
-    color: #fff;
-    width: 36px;
-    height: 36px;
+    color: var(--c-text);
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    font-size: 1rem;
-    font-weight: bold;
+    font-size: 1.1rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -159,8 +157,35 @@
     transition: background 0.2s, transform 0.15s;
   }
   .chat-header-btn:hover {
-    background: var(--c-primary-light);
-    transform: scale(1.05);
+    background: var(--header-btn-hover);
+  }
+  .chat-header-new-btn {
+    position: relative;
+  }
+  .chat-header-new-btn .chat-plus-icon {
+    width: 34px;
+    height: 34px;
+    border: 2px solid var(--c-text);
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .chat-header-new-btn .chat-plus-icon::before,
+  .chat-header-new-btn .chat-plus-icon::after {
+    content: "";
+    position: absolute;
+    background: var(--c-text);
+    border-radius: 2px;
+  }
+  .chat-header-new-btn .chat-plus-icon::before {
+    width: 14px;
+    height: 2px;
+  }
+  .chat-header-new-btn .chat-plus-icon::after {
+    width: 2px;
+    height: 14px;
   }
 
   /* ========== 消息列表 ========== */
@@ -694,13 +719,15 @@
 
   <header class="chat-header">
     <button type="button" class="chat-menu-btn" id="chatMenuBtn" title="查看聊天记录" aria-label="查看聊天记录">
-      <span></span><span></span><span></span>
+      <span></span><span></span>
     </button>
     <div class="chat-header-title">
       <h2>灵知</h2>
     </div>
     <div class="chat-header-actions">
-      <button type="button" class="chat-header-btn" id="chatNewBtn" title="新话题" aria-label="新话题">✚</button>
+      <button type="button" class="chat-header-btn chat-header-new-btn" id="chatNewBtn" title="新话题" aria-label="新话题">
+        <span class="chat-plus-icon"></span>
+      </button>
       <button type="button" class="chat-header-btn" id="chatClearBtn" title="清空记录" aria-label="清空记录">🗑</button>
     </div>
   </header>
