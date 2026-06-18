@@ -235,6 +235,57 @@
     .msg-delete { opacity: 1; visibility: visible; }
   }
 
+  /* ========== 长按交互菜单 ========== */
+  .msg-action-overlay {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    z-index: 998;
+  }
+  .msg-action-menu {
+    position: fixed;
+    z-index: 999;
+    background: var(--c-surface);
+    color: var(--c-text);
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+    padding: 4px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+    min-width: 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.9rem;
+    animation: menuIn 0.15s ease;
+  }
+  @keyframes menuIn {
+    from { opacity: 0; transform: scale(0.94); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .msg-action-menu button {
+    background: transparent;
+    color: inherit;
+    border: none;
+    text-align: left;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: inherit;
+    line-height: 1.4;
+  }
+  .msg-action-menu button:hover,
+  .msg-action-menu button:focus {
+    background: var(--c-surface-2);
+    outline: none;
+  }
+  .msg-action-menu .is-danger { color: var(--c-danger); }
+  /* 气泡在长按时禁用系统菜单/文本选中 */
+  .msg-bubble.has-longpress {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
   /* ========== KaTeX 公式渲染 ========== */
   .katex-block {
     display: block;
@@ -1312,6 +1363,9 @@
     delBtn.addEventListener("click", function () { confirmDeleteMessage(div); });
     bubble.appendChild(delBtn);
 
+    // 绑定长按交互菜单
+    attachLongPressToBubble(bubble, div, msg.content);
+
     div.appendChild(bubble);
     return div;
   }
@@ -1566,6 +1620,230 @@
     delBtn.textContent = "×";
     delBtn.addEventListener("click", function () { confirmDeleteMessage(msgDiv); });
     bubble.appendChild(delBtn);
+
+    // 绑定长按交互菜单
+    attachLongPressToBubble(bubble, msgDiv, content);
+  }
+
+  /** 当前弹出的菜单引用，用于统一关闭 */
+  var _currentMsgActionMenu = null;
+  var _currentMsgActionOverlay = null;
+
+  function hideMsgActionMenu() {
+    if (_currentMsgActionMenu) {
+      _currentMsgActionMenu.remove();
+      _currentMsgActionMenu = null;
+    }
+    if (_currentMsgActionOverlay) {
+      _currentMsgActionOverlay.remove();
+      _currentMsgActionOverlay = null;
+    }
+  }
+
+  /**
+   * 在长按位置弹出交互菜单
+   * clickX / clickY 必须是 viewport 坐标（clientX/clientY）
+   * 菜单显示在手指位置正上方；若上方空间不足则贴手指正下方。
+   */
+  function showMsgActionMenu(clickX, clickY, bubble, msgDiv, content) {
+    // 关闭任何已有菜单
+    hideMsgActionMenu();
+
+    // 点击空白处关闭的全屏透明遮罩
+    var overlay = document.createElement("div");
+    overlay.className = "msg-action-overlay";
+    overlay.addEventListener("click", hideMsgActionMenu);
+    overlay.addEventListener("touchstart", hideMsgActionMenu, { passive: true });
+    document.body.appendChild(overlay);
+    _currentMsgActionOverlay = overlay;
+
+    // 菜单本体
+    var menu = document.createElement("div");
+    menu.className = "msg-action-menu";
+    menu.setAttribute("role", "menu");
+    menu.addEventListener("click", function (e) { e.stopPropagation(); });
+    menu.addEventListener("touchstart", function (e) { e.stopPropagation(); }, { passive: true });
+
+    // 复制
+    var copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.textContent = "复制";
+    copyBtn.addEventListener("click", function () {
+      var text = (content || bubble.innerText || "").toString();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () { fallbackCopy(text); });
+      } else {
+        fallbackCopy(text);
+      }
+      hideMsgActionMenu();
+    });
+    menu.appendChild(copyBtn);
+
+    // 删除
+    var delBtnMenu = document.createElement("button");
+    delBtnMenu.type = "button";
+    delBtnMenu.className = "is-danger";
+    delBtnMenu.textContent = "删除";
+    delBtnMenu.addEventListener("click", function () {
+      hideMsgActionMenu();
+      confirmDeleteMessage(msgDiv);
+    });
+    menu.appendChild(delBtnMenu);
+
+    document.body.appendChild(menu);
+    _currentMsgActionMenu = menu;
+
+    // 以手指位置为锚点摆放菜单
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var menuRect = menu.getBoundingClientRect();
+    var menuW = menuRect.width;
+    var menuH = menuRect.height;
+    var margin = 8;
+    var fingerGap = 14; // 菜单与手指之间的距离（避免直接覆盖手指）
+
+    // 水平位置：以手指为中心，再做边界钳制
+    var left = clickX - menuW / 2;
+    left = Math.max(margin, Math.min(left, vw - menuW - margin));
+
+    // 垂直位置：优先显示在手指上方；上方放不下时放到手指下方
+    var top;
+    if (clickY - fingerGap - menuH >= margin) {
+      top = clickY - fingerGap - menuH;
+    } else {
+      top = clickY + fingerGap;
+    }
+    // 垂直边界钳制
+    top = Math.max(margin, Math.min(top, vh - menuH - margin));
+
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(top) + "px";
+
+    // 滚动、窗口变化时自动关闭，避免错位
+    var scrollClose = function () { hideMsgActionMenu(); };
+    document.addEventListener("scroll", scrollClose, { capture: true, passive: true, once: true });
+    window.addEventListener("resize", scrollClose, { once: true });
+  }
+
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "-9999px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    } catch (e) { /* ignore */ }
+  }
+
+  /** 统一给气泡绑定长按事件（touch / mouse / contextmenu） */
+  function attachLongPressToBubble(bubble, msgDiv, content) {
+    bubble.classList.add("has-longpress");
+
+    var LONG_PRESS_MS = 450;
+    var MOVE_TOLERANCE = 10;
+    var pressTimer = null;
+    var startX = 0;
+    var startY = 0;
+    var triggered = false;
+
+    function clearTimer() {
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    }
+
+    function onPressStart(clientX, clientY, e) {
+      triggered = false;
+      startX = clientX;
+      startY = clientY;
+      clearTimer();
+      pressTimer = setTimeout(function () {
+        triggered = true;
+        // 长按触发：阻止后续的文本选中/系统菜单
+        if (e && e.preventDefault) {
+          try { e.preventDefault(); } catch (_) {}
+        }
+        if (window.getSelection) {
+          try { window.getSelection().removeAllRanges(); } catch (_) {}
+        }
+        showMsgActionMenu(clientX, clientY, bubble, msgDiv, content);
+      }, LONG_PRESS_MS);
+    }
+
+    function onPressMove(clientX, clientY) {
+      if (!pressTimer) return;
+      if (Math.abs(clientX - startX) > MOVE_TOLERANCE ||
+          Math.abs(clientY - startY) > MOVE_TOLERANCE) {
+        clearTimer();
+      }
+    }
+
+    function onPressEnd() {
+      clearTimer();
+    }
+
+    // 触摸事件（非 passive，长按触发时需要能调用 preventDefault 阻止系统文本选中）
+    bubble.addEventListener("touchstart", function (e) {
+      var t = e.touches && e.touches[0];
+      if (!t) return;
+      onPressStart(t.clientX, t.clientY, e);
+    }, { passive: false });
+
+    bubble.addEventListener("touchmove", function (e) {
+      var t = e.touches && e.touches[0];
+      if (!t) return;
+      onPressMove(t.clientX, t.clientY);
+    }, { passive: true });
+
+    bubble.addEventListener("touchend", function () {
+      onPressEnd();
+    });
+
+    bubble.addEventListener("touchcancel", function () {
+      onPressEnd();
+    });
+
+    // 鼠标右键 / 桌面模拟长按
+    bubble.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      showMsgActionMenu(e.clientX, e.clientY, bubble, msgDiv, content);
+    });
+
+    // 桌面：按住鼠标左键也视为长按（便于测试）
+    var mouseDownActive = false;
+    bubble.addEventListener("mousedown", function (e) {
+      if (e.button !== 0) return;
+      mouseDownActive = true;
+      onPressStart(e.clientX, e.clientY, e);
+    });
+    bubble.addEventListener("mousemove", function (e) {
+      if (!mouseDownActive) return;
+      onPressMove(e.clientX, e.clientY);
+    });
+    bubble.addEventListener("mouseup", function () {
+      mouseDownActive = false;
+      onPressEnd();
+    });
+    bubble.addEventListener("mouseleave", function () {
+      mouseDownActive = false;
+      onPressEnd();
+    });
+
+    // 长按触发后：阻止接下来这一次 click 冒泡（防止误触发链接/其他元素）
+    bubble.addEventListener("click", function (e) {
+      if (triggered) {
+        e.stopPropagation();
+        e.preventDefault();
+        triggered = false;
+      }
+    }, true);
   }
 
   /** 构造请求——密钥运行时解密，用后不驻留变量 */
