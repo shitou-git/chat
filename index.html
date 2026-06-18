@@ -25,7 +25,7 @@
     --c-danger-dark: #dc2626;
     --c-scrollbar: #d1d5db;
     --c-scrollbar-hover: #9ca3af;
-    --header-grad: linear-gradient(135deg, var(--c-primary-light), var(--c-accent));
+    --header-grad: linear-gradient(to bottom, #f3f0ff, var(--c-surface-2));
     --btn-grad: linear-gradient(135deg, var(--c-primary-light), var(--c-accent));
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
     --shadow-md: 0 6px 20px rgba(124, 58, 237, 0.12);
@@ -47,6 +47,7 @@
       --c-primary-soft: #2d1b4e;
       --c-scrollbar: #4b5563;
       --c-scrollbar-hover: #6b7280;
+      --header-grad: linear-gradient(to bottom, #2a2a3e, var(--c-surface-2));
       --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
       --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.4);
       --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
@@ -84,19 +85,21 @@
   /* ========== 顶部标题栏 ========== */
   .chat-header {
     background: var(--header-grad);
-    color: #fff;
+    color: var(--c-text);
     padding: 10px 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-shrink: 0;
-    box-shadow: 0 4px 16px rgba(139, 92, 246, 0.25);
+    box-shadow: none;
     z-index: 10;
+    border-bottom: 1px solid var(--c-border);
   }
   .chat-header-title {
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+    gap: 8px;
     flex: 1;
     min-width: 0;
     cursor: pointer;
@@ -107,14 +110,16 @@
     position: relative;
   }
   .chat-header-title::after {
-    content: "▼";
-    font-size: 0.85rem;
-    margin-left: 4px;
-    opacity: 0.85;
-    transition: transform 0.3s ease;
+    content: "";
+    width: 20px;
+    height: 3px;
+    background: var(--c-muted);
+    border-radius: 2px;
+    box-shadow: 0 6px 0 var(--c-muted), 0 12px 0 var(--c-muted);
+    transition: opacity 0.2s;
   }
-  .chat-header-title:hover { background: rgba(255, 255, 255, 0.15); }
-  .chat-header-title:hover::after { transform: rotate(180deg); }
+  .chat-header-title:hover { background: rgba(124, 58, 237, 0.08); }
+  .chat-header-title:hover::after { opacity: 0.6; }
   .chat-header h2 {
     font-size: 1.15rem;
     font-weight: bold;
