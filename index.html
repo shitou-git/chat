@@ -1296,6 +1296,61 @@
    * DOM 渲染
    * ================================================================ */
 
+  /** 给气泡绑定长按/右键操作菜单 */
+  function attachLongPressToBubble(bubble, msgDiv, msg) {
+    var longPressTimer = null;
+    var startX = 0;
+    var startY = 0;
+
+    function getClientX(e) {
+      if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
+      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
+      return e.clientX || 0;
+    }
+    function getClientY(e) {
+      if (e.touches && e.touches.length > 0) return e.touches[0].clientY;
+      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
+      return e.clientY || 0;
+    }
+
+    function startLongPress(e) {
+      startX = getClientX(e);
+      startY = getClientY(e);
+      longPressTimer = setTimeout(function () {
+        if (navigator.vibrate) navigator.vibrate(15);
+        showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
+      }, 500);
+    }
+
+    function cancelLongPress() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+
+    function handleMove(e) {
+      if (!longPressTimer) return;
+      var cx = getClientX(e);
+      var cy = getClientY(e);
+      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) {
+        cancelLongPress();
+      }
+    }
+
+    bubble.addEventListener("touchstart", startLongPress, { passive: true });
+    bubble.addEventListener("touchend", cancelLongPress);
+    bubble.addEventListener("touchmove", handleMove, { passive: true });
+    bubble.addEventListener("touchcancel", cancelLongPress);
+    bubble.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
+    });
+    bubble.addEventListener("mousedown", startLongPress);
+    bubble.addEventListener("mouseup", cancelLongPress);
+    bubble.addEventListener("mouseleave", cancelLongPress);
+  }
+
   function createMessageElement(msg) {
     var div = document.createElement("div");
     div.className = "message " + (msg.role === "user" ? "user" : "ai");
@@ -1324,58 +1379,8 @@
     });
     bubble.appendChild(delBtn);
 
-    // 长按气泡弹出操作菜单（长按 500ms）
-    var longPressTimer = null;
-    var startX = 0;
-    var startY = 0;
-
-    function getClientX(e) {
-      if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
-      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
-      return e.clientX || 0;
-    }
-    function getClientY(e) {
-      if (e.touches && e.touches.length > 0) return e.touches[0].clientY;
-      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
-      return e.clientY || 0;
-    }
-
-    function startLongPress(e) {
-      startX = getClientX(e);
-      startY = getClientY(e);
-      longPressTimer = setTimeout(function () {
-        if (navigator.vibrate) navigator.vibrate(15);
-        showMsgActionMenu(div, bubble, msg, startX, startY);
-      }, 500);
-    }
-
-    function cancelLongPress() {
-      if (longPressTimer) {
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
-      }
-    }
-
-    function handleMove(e) {
-      if (!longPressTimer) return;
-      var cx = getClientX(e);
-      var cy = getClientY(e);
-      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) {
-        cancelLongPress();
-      }
-    }
-
-    bubble.addEventListener("touchstart", startLongPress, { passive: true });
-    bubble.addEventListener("touchend", cancelLongPress);
-    bubble.addEventListener("touchmove", handleMove, { passive: true });
-    bubble.addEventListener("touchcancel", cancelLongPress);
-    bubble.addEventListener("contextmenu", function (e) {
-      e.preventDefault();
-      showMsgActionMenu(div, bubble, msg, startX, startY);
-    });
-    bubble.addEventListener("mousedown", startLongPress);
-    bubble.addEventListener("mouseup", cancelLongPress);
-    bubble.addEventListener("mouseleave", cancelLongPress);
+    // 长按气泡弹出操作菜单
+    attachLongPressToBubble(bubble, div, msg);
 
     div.appendChild(bubble);
     return div;
@@ -1578,9 +1583,12 @@
       var aiReply = addMessageData("assistant", "我是灵知，请问有什么可以帮你的？");
       var aiMsgDiv = document.createElement("div");
       aiMsgDiv.className = "message ai";
+      aiMsgDiv.dataset.msgId = aiReply.id;
       aiMsgDiv.innerHTML = '<div class="msg-bubble">' + renderContent("我是灵知，请问有什么可以帮你的？") + "</div>";
+      var bubbleForId = aiMsgDiv.querySelector(".msg-bubble");
       chatMessages.appendChild(aiMsgDiv);
-      appendActions(aiMsgDiv.querySelector(".msg-bubble"), aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
+      appendActions(bubbleForId, aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
+      attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
       scrollToBottom();
       saveChatHistory();
       toggleSendButton(false);
@@ -1711,6 +1719,7 @@
       // 最终全量渲染
       bubble.innerHTML = renderContent(fullContent);
       appendActions(bubble, aiMsgDiv, fullContent);
+      attachLongPressToBubble(bubble, aiMsgDiv, aiMsg);
       autoScaleKatex(bubble);
       scrollToBottom();
       saveChatHistory();
@@ -1726,6 +1735,7 @@
 
           bubble.innerHTML = renderContent(fullContent);
           appendActions(bubble, aiMsgDiv, fullContent);
+          attachLongPressToBubble(bubble, aiMsgDiv, partialMsg);
           autoScaleKatex(bubble);
           saveChatHistory();
         } else {
@@ -1734,8 +1744,10 @@
         }
       } else {
         // 其他错误
+        var errMsg = { role: "assistant", content: "❌ 出错了：" + err.message };
         bubble.innerHTML = renderContent("❌ 出错了：" + err.message);
         appendActions(bubble, aiMsgDiv, fullContent || "");
+        attachLongPressToBubble(bubble, aiMsgDiv, errMsg);
         console.error(err);
       }
     } finally {
