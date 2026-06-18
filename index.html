@@ -86,40 +86,47 @@
   .chat-header {
     background: var(--header-grad);
     color: var(--c-text);
-    padding: 10px 20px;
+    padding: 10px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
     flex-shrink: 0;
     box-shadow: none;
     z-index: 10;
     border-bottom: 1px solid var(--c-border);
   }
+  .chat-menu-btn {
+    background: transparent;
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    transition: background 0.2s;
+    padding: 0;
+  }
+  .chat-menu-btn span {
+    width: 22px;
+    height: 3px;
+    background: var(--c-text);
+    border-radius: 2px;
+    display: block;
+  }
+  .chat-menu-btn:hover { background: rgba(124, 58, 237, 0.12); }
   .chat-header-title {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    flex: 1;
     min-width: 0;
-    cursor: pointer;
-    border-radius: 8px;
-    padding: 4px 8px;
-    margin: -4px -8px;
-    transition: background 0.2s;
-    position: relative;
   }
-  .chat-header-title::after {
-    content: "";
-    width: 20px;
-    height: 3px;
-    background: var(--c-muted);
-    border-radius: 2px;
-    box-shadow: 0 6px 0 var(--c-muted), 0 12px 0 var(--c-muted);
-    transition: opacity 0.2s;
-  }
-  .chat-header-title:hover { background: rgba(124, 58, 237, 0.08); }
-  .chat-header-title:hover::after { opacity: 0.6; }
   .chat-header h2 {
     font-size: 1.15rem;
     font-weight: bold;
@@ -127,27 +134,34 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    margin: 0;
+    color: var(--c-text);
   }
   .chat-header-actions {
     display: flex;
     gap: 8px;
+    align-items: center;
     flex-shrink: 0;
   }
   .chat-header-btn {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--c-primary);
     border: none;
     color: #fff;
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     font-size: 1rem;
+    font-weight: bold;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
+    transition: background 0.2s, transform 0.15s;
   }
-  .chat-header-btn:hover { background: rgba(255, 255, 255, 0.35); }
+  .chat-header-btn:hover {
+    background: var(--c-primary-light);
+    transform: scale(1.05);
+  }
 
   /* ========== 消息列表 ========== */
   .chat-messages {
@@ -679,8 +693,10 @@
 <div class="chat-app">
 
   <header class="chat-header">
-
-    <div class="chat-header-title" id="chatHeaderTitle" title="查看聊天记录" role="button" tabindex="0">
+    <button type="button" class="chat-menu-btn" id="chatMenuBtn" title="查看聊天记录" aria-label="查看聊天记录">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="chat-header-title">
       <h2>灵知</h2>
     </div>
     <div class="chat-header-actions">
@@ -1948,10 +1964,10 @@
     chatSidebarNewBtn.addEventListener("click", startNewSession);
 
     // 点击标题打开侧栏
-    var chatHeaderTitle = document.getElementById("chatHeaderTitle");
-    if (chatHeaderTitle) {
-      chatHeaderTitle.addEventListener("click", openSidebar);
-      chatHeaderTitle.addEventListener("keydown", function (e) {
+    var chatMenuBtn = document.getElementById("chatMenuBtn");
+    if (chatMenuBtn) {
+      chatMenuBtn.addEventListener("click", openSidebar);
+      chatMenuBtn.addEventListener("keydown", function (e) {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           openSidebar();
