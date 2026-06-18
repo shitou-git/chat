@@ -548,26 +548,26 @@
     right: 8px;
     top: 50%;
     transform: translateY(-50%);
-    background: var(--c-danger);
-    border: none;
-    color: #fff;
-    width: 36px;
-    height: 36px;
+    background: var(--c-surface);
+    border: 1.5px solid var(--c-danger);
+    color: var(--c-danger);
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    font-size: 1.5rem;
+    font-size: 1.3rem;
     font-weight: bold;
     cursor: pointer;
     opacity: 1;
-    transition: background 0.15s, transform 0.15s;
+    transition: all 0.15s;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     line-height: 1;
-    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
   }
   .chat-sidebar-item-delete:hover {
-    background: var(--c-danger-dark);
+    background: var(--c-danger);
+    color: #fff;
     transform: translateY(-50%) scale(1.08);
   }
   .chat-sidebar-empty {
