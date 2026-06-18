@@ -135,36 +135,6 @@
   }
   .chat-header-btn:hover { background: rgba(255, 255, 255, 0.35); }
 
-  /* ========== 返回首页按钮 ========== */
-  .chat-back-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    color: #fff;
-    height: 34px;
-    padding: 0 14px;
-    border-radius: 17px;
-    font-size: 0.88rem;
-    font-weight: 500;
-    text-decoration: none;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: background 0.2s, transform 0.2s;
-    font-family: inherit;
-  }
-  .chat-back-btn:hover {
-    background: rgba(255, 255, 255, 0.35);
-    transform: translateX(-2px);
-  }
-  .chat-back-btn .arrow { font-size: 1rem; line-height: 1; }
-  @media (max-width: 480px) {
-    .chat-back-btn { padding: 0 10px; font-size: 0.82rem; }
-    .chat-back-btn .label-text { display: none; }
-    .chat-back-btn::after { content: "首页"; font-size: 0.82rem; }
-  }
-
   /* ========== 消息列表 ========== */
   .chat-messages {
     flex: 1;
@@ -678,13 +648,10 @@
 <div class="chat-app">
 
   <header class="chat-header">
-    <a href="https://shitou-git.github.io/math//math" class="chat-back-btn" title="返回首页" aria-label="返回首页">
-      <span class="arrow" aria-hidden="true">&larr;</span>
-      <span class="label-text">返回首页</span>
-    </a>
+
     <div class="chat-header-title" id="chatHeaderTitle" title="查看聊天记录" role="button" tabindex="0">
       <span style="font-size: 1.4rem;" aria-hidden="true">🤖</span>
-      <h2>AI 聊天助手</h2>
+      <h2>灵知</h2>
     </div>
     <div class="chat-header-actions">
       <button type="button" class="chat-header-btn" id="chatNewBtn" title="新话题" aria-label="新话题">✚</button>
