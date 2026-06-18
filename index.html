@@ -728,7 +728,6 @@
       <button type="button" class="chat-header-btn chat-header-new-btn" id="chatNewBtn" title="新话题" aria-label="新话题">
         <span class="chat-plus-icon"></span>
       </button>
-      <button type="button" class="chat-header-btn" id="chatClearBtn" title="清空记录" aria-label="清空记录">🗑</button>
     </div>
   </header>
 
@@ -1023,7 +1022,7 @@
    * DOM 引用
    * ================================================================ */
 
-  var chatMessages, chatInput, chatSendBtn, chatClearBtn, chatNewBtn;
+  var chatMessages, chatInput, chatSendBtn, chatNewBtn;
   var chatConfirmOverlay, chatConfirmCancel, chatConfirmOk;
   var chatConfirmTitle, chatConfirmWarn;
   var chatSidebar, chatSidebarOverlay, chatSidebarClose, chatSidebarNewBtn, chatSidebarList;
@@ -1971,7 +1970,6 @@
     chatMessages = document.getElementById("chatMessages");
     chatInput = document.getElementById("chatInput");
     chatSendBtn = document.getElementById("chatSendBtn");
-    chatClearBtn = document.getElementById("chatClearBtn");
     chatNewBtn = document.getElementById("chatNewBtn");
     chatConfirmOverlay = document.getElementById("chatConfirmOverlay");
     chatConfirmCancel = document.getElementById("chatConfirmCancel");
@@ -1998,9 +1996,6 @@
 
     // 发送 / 停止按钮
     chatSendBtn.addEventListener("click", sendMessage);
-
-    // 清空记录
-    chatClearBtn.addEventListener("click", confirmClearAll);
 
     // 新话题
     chatNewBtn.addEventListener("click", startNewSession);
