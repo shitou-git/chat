@@ -11,26 +11,26 @@
   </defs>
   <rect width="512" height="512" rx="96" fill="url(#bg)"/>
   
-  <path d="M 170 250
-           C 145 200 190 155 230 155
-           L 330 155
-           C 370 155 390 180 380 225
-           L 180 380
-           C 145 410 145 410 190 410
-           L 330 410
-           C 370 410 410 380 400 320"
+  <path d="M 180 250
+           C 160 210 195 170 230 170
+           L 320 170
+           C 350 170 370 195 360 230
+           L 210 360
+           C 185 385 185 385 215 385
+           L 320 385
+           C 350 385 370 360 360 335"
         fill="none"
         stroke="url(#zFill)"
-        stroke-width="55"
+        stroke-width="50"
         stroke-linecap="round"
         stroke-linejoin="round"/>
   
-  <path d="M 345 200
-           C 330 230 300 270 265 320
-           L 220 385
-           C 200 400 200 400 215 415"
+  <path d="M 335 200
+           C 320 230 295 265 265 310
+           L 230 365
+           C 215 380 215 380 230 390"
         fill="none"
         stroke="#ffffff"
-        stroke-width="30"
+        stroke-width="28"
         stroke-linecap="round"/>
 </svg>
