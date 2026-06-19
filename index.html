@@ -1616,6 +1616,8 @@
     chatMessages.appendChild(aiMsgDiv);
     var bubble = aiMsgDiv.querySelector(".msg-bubble");
     scrollToBottom(true);
+    // 额外再滚一次，确保"正在思考"气泡出现在用户视野（抵消可能的 rAF 互相覆盖）
+    setTimeout(function () { scrollToBottom(true); }, 50);
 
     // 构建上下文（从 chatData，不包含当前占位）
     var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
