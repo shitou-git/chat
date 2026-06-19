@@ -1645,7 +1645,61 @@
       return (m ? m.length : 0) + 1;
     }
 
-    // 流式阶段：节流式把 pendingText 以纯文本追加到气泡
+    // 流式阶段：对已完整的公式用 KaTeX 直接渲染，其他文本纯文本追加
+    // 避免把 $v_{up}$ 拆成逐字符输出，也避免等到流结束才一次性显示所有公式
+    function renderIncremental(text) {
+      if (!text) return "";
+      var result = "";
+      var pos = 0;
+      var hasKatex = typeof katex !== "undefined";
+      while (pos < text.length) {
+        // 先尝试 $$...$$ 块级公式
+        if (text.substr(pos, 2) === "$$") {
+          var endIdx = text.indexOf("$$", pos + 2);
+          if (endIdx !== -1) {
+            var formula = text.substring(pos + 2, endIdx).trim();
+            if (formula && hasKatex) {
+              try {
+                var rendered = katex.renderToString(formula, { throwOnError: false, displayMode: true, output: "html" });
+                result += '<div class="katex-block">' + rendered + "</div>";
+              } catch (e) {
+                result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
+              }
+            } else {
+              result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
+            }
+            pos = endIdx + 2;
+            continue;
+          }
+        }
+        // 再尝试 $...$ 行内公式
+        if (text.charAt(pos) === "$") {
+          var endIdx2 = text.indexOf("$", pos + 1);
+          if (endIdx2 !== -1 && endIdx2 > pos + 1) {
+            var formula2 = text.substring(pos + 1, endIdx2).trim();
+            if (formula2 && hasKatex) {
+              try {
+                result += katex.renderToString(formula2, { throwOnError: false, displayMode: false, output: "html" });
+              } catch (e) {
+                result += '<code class="math-fallback">' + escapeHtml(formula2) + "</code>";
+              }
+            } else {
+              result += '<code class="math-fallback">' + escapeHtml(formula2) + "</code>";
+            }
+            pos = endIdx2 + 1;
+            continue;
+          }
+        }
+        // 文本部分：累计到下一个 $ 或段末
+        var nextDollar = text.indexOf("$", pos);
+        var segEnd = nextDollar === -1 ? text.length : nextDollar;
+        var seg = text.substring(pos, segEnd);
+        result += escapeHtml(seg).replace(/\n/g, "<br>");
+        pos = segEnd;
+      }
+      return result;
+    }
+
     function flushStreamAppend(force) {
       var nowTs = Date.now();
       if (!force && lastAppendTs > 0 && nowTs - lastAppendTs < APPEND_THROTTLE_MS) return;
@@ -1656,7 +1710,8 @@
         hasClearedPlaceholder = true;
       }
 
-      var html = escapeHtml(pendingText).replace(/\n/g, "<br>");
+      // 流式增量渲染：已完整的公式直接用 KaTeX，其他文本原样追加
+      var html = renderIncremental(pendingText);
       var host = document.createElement("div");
       host.innerHTML = html;
       while (host.firstChild) bubble.appendChild(host.firstChild);
