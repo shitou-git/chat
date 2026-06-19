@@ -8,6 +8,12 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20128%20128%22><defs><linearGradient%20id=%22g%22%20x1=%220%22%20y1=%220%22%20x2=%221%22%20y2=%221%22><stop%20offset=%220%25%22%20stop-color=%22%23f3e8ff%22/><stop%20offset=%22100%25%22%20stop-color=%22%23ffe4ec%22/></linearGradient></defs><rect%20width=%22128%22%20height=%22128%22%20rx=%2228%22%20fill=%22url(%23g)%22/><path%20d=%22M64%2078%20Q64%20108%2056%20116%20L72%20116%20Q64%20108%2064%2078%20Z%22%20fill=%22%237c3aed%22/><ellipse%20cx=%2254%22%20cy=%2270%22%20rx=%2226%22%20ry=%2212%22%20fill=%22%238b5cf6%22%20opacity=%220.85%22%20transform=%22rotate(-20%2054%2070)%22/><ellipse%20cx=%2272%22%20cy=%2254%22%20rx=%2240%22%20ry=%2218%22%20fill=%22%237c3aed%22%20transform=%22rotate(-15%2072%2054)%22/><g%20stroke=%22%23ec4899%22%20stroke-width=%222%22%20fill=%22none%22%20stroke-linecap=%22round%22><path%20d=%22M48%2054%20Q72%2050%20100%2060%22/><path%20d=%22M50%2064%20Q74%2058%2098%2070%22/></g></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20180%20180%22><defs><linearGradient%20id=%22g%22%20x1=%220%22%20y1=%220%22%20x2=%221%22%20y2=%221%22><stop%20offset=%220%25%22%20stop-color=%22%23f3e8ff%22/><stop%20offset=%22100%25%22%20stop-color=%22%23ffe4ec%22/></linearGradient></defs><rect%20width=%22180%22%20height=%22180%22%20rx=%2240%22%20fill=%22url(%23g)%22/><path%20d=%22M90%20102%20Q90%20146%2080%20156%20L100%20156%20Q90%20146%2090%20102%20Z%22%20fill=%22%237c3aed%22/><ellipse%20cx=%2272%22%20cy=%2290%22%20rx=%2244%22%20ry=%2220%22%20fill=%22%238b5cf6%22%20opacity=%220.88%22%20transform=%22rotate(-20%2072%2090)%22/><ellipse%20cx=%22102%22%20cy=%2270%22%20rx=%2262%22%20ry=%2228%22%20fill=%22%237c3aed%22%20transform=%22rotate(-15%20102%2070)%22/><g%20stroke=%22%23ec4899%22%20stroke-width=%223%22%20fill=%22none%22%20stroke-linecap=%22round%22><path%20d=%22M64%2072%20Q102%2064%20142%2078%22/><path%20d=%22M66%2084%20Q104%2078%20140%2090%22/><path%20d=%22M74%2094%20Q106%2090%20136%20100%22/></g></svg>">
 <title>灵知</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="灵知">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="icon.svg">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 <style>
@@ -2358,6 +2364,44 @@
   } else {
     initWhenReady();
   }
+
+  // ---------- PWA：注册 Service Worker ----------
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker
+        .register("./sw.js", { scope: "./" })
+        .then(function (reg) {
+          console.log("[PWA] Service Worker 已注册，作用域：", reg.scope);
+          // 有新版本 SW 时提示
+          reg.addEventListener("updatefound", function () {
+            var installing = reg.installing;
+            if (!installing) return;
+            installing.addEventListener("statechange", function () {
+              if (installing.state === "installed" && navigator.serviceWorker.controller) {
+                console.log("[PWA] 有新版本可用，下次打开页面时生效");
+              }
+            });
+          });
+        })
+        .catch(function (err) {
+          console.warn("[PWA] Service Worker 注册失败：", err);
+        });
+    });
+  }
+
+  // ---------- PWA：安装提示 ----------
+  var deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", function (event) {
+    // 阻止 Chrome 自动弹出默认安装提示
+    event.preventDefault();
+    deferredPrompt = event;
+    console.log("[PWA] 可以安装应用了，点击地址栏图标或分享菜单中的「添加到主屏幕」");
+  });
+
+  window.addEventListener("appinstalled", function () {
+    console.log("[PWA] 应用已安装成功");
+    deferredPrompt = null;
+  });
 })();
 </script>
 </body>
