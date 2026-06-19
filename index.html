@@ -85,6 +85,9 @@
     }
     /* 深色模式下焦点提示色也调整为更柔和的紫 */
     :focus-visible { outline: 2px solid var(--c-primary-light); outline-offset: 2px; }
+    /* 输入栏在深色模式下不额外加 outline */
+    .chat-input:focus { outline: none; }
+    .chat-input:focus-visible { outline: none; }
   }
 
   /* 手动切换深色：通过 body.is-dark 覆盖相同的 CSS 变量 + 气泡样式（与 prefers-color-scheme: dark 效果一致） */
@@ -121,6 +124,8 @@
       var(--c-surface-2);
   }
   body.is-dark :focus-visible { outline: 2px solid var(--c-primary-light); outline-offset: 2px; }
+  body.is-dark .chat-input:focus { outline: none; }
+  body.is-dark .chat-input:focus-visible { outline: none; }
 
   /* 主题切换按钮：根据 body.is-dark 显示不同图标 */
   #chatThemeBtn .theme-icon-light { display: inline; }
