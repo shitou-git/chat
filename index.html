@@ -1475,16 +1475,152 @@
 
     abortController = new AbortController();
 
-    var fullContent = "";
-    var renderTimeout = null;
+    // ===== 流式渲染状态 =====
+    var fullContent = "";            // 完整累积文本
+    var appendedLen = 0;             // 已追加到 DOM 的字符位置（fullContent 中）
+    var pendingTail = "";            // 上次增量渲染后残留的未配对 $ 片段
+    var appendTimeout = null;        // 节流定时器
+    var hasClearedPlaceholder = false;
+    var AUTO_SCROLL_LINE_LIMIT = 12; // 前 N 行跟随滚动
+    var APPEND_INTERVAL_MS = 30;     // DOM 增量更新频率
 
-    var self = this;
+    // 估算行数（按换行符）
+    function estimateLineCount(text) {
+      if (!text) return 0;
+      var m = text.match(/\n/g);
+      return (m ? m.length : 0) + 1;
+    }
 
-    function doRender() {
-      // 全量重渲染——避免公式被流式 chunk 截断
-      bubble.innerHTML = renderContent(fullContent);
-      if (isNearBottom()) scrollToBottom();
-      renderTimeout = null;
+    // 扫描字符串中已闭合的公式：$$...$$ 和 $...$
+    // 返回 [{type: 'block'|'inline'|'text', content: string, end: int}]，按出现顺序
+    // 扫描到文本末尾未闭合的 $ 或 $$，保留为 tail
+    function tokenizeIncremental(text) {
+      var tokens = [];
+      var pos = 0;
+      var len = text.length;
+      while (pos < len) {
+        // 优先匹配 $$...$$
+        if (text.substr(pos, 2) === "$$") {
+          var endIdx = text.indexOf("$$", pos + 2);
+          if (endIdx !== -1) {
+            var formula = text.substring(pos + 2, endIdx).trim();
+            tokens.push({ type: "block", content: formula });
+            pos = endIdx + 2;
+            continue;
+          } else {
+            // 末尾未配对 $$，作为 tail 返回（文本中保留）
+            break;
+          }
+        }
+        // 其次匹配 $...$
+        if (text.charAt(pos) === "$") {
+          var endIdx2 = text.indexOf("$", pos + 1);
+          if (endIdx2 !== -1 && endIdx2 > pos + 1) {
+            var formula2 = text.substring(pos + 1, endIdx2).trim();
+            tokens.push({ type: "inline", content: formula2 });
+            pos = endIdx2 + 1;
+            continue;
+          } else {
+            // 末尾未配对 $，作为 tail
+            break;
+          }
+        }
+        // 普通文本：前进到下一个 $ 或末尾
+        var nextDollar = text.indexOf("$", pos);
+        var segEnd = (nextDollar === -1) ? len : nextDollar;
+        if (segEnd <= pos) segEnd = pos + 1;
+        tokens.push({ type: "text", content: text.substring(pos, segEnd) });
+        pos = segEnd;
+      }
+      var tail = (pos < len) ? text.substring(pos) : "";
+      return { tokens: tokens, tail: tail };
+    }
+
+    // 增量 DOM 追加：把新文本渲染成节点（公式用 KaTeX，文本用转义的 textNode + <br>）
+    // 只 appendChild 到 bubble，不销毁已存在的内容
+    function flushAppend(newText) {
+      if (!newText) return;
+
+      if (!hasClearedPlaceholder) {
+        bubble.innerHTML = "";
+        hasClearedPlaceholder = true;
+      }
+
+      var result = tokenizeIncremental(newText);
+      var tokens = result.tokens;
+      var hasKatex = typeof katex !== "undefined";
+      var frag = document.createDocumentFragment();
+
+      for (var i = 0; i < tokens.length; i++) {
+        var t = tokens[i];
+        if (t.type === "text") {
+          // 文本：转义后按换行拆成 textNode + <br>
+          var lines = t.content.split("\n");
+          for (var j = 0; j < lines.length; j++) {
+            if (lines[j].length > 0) {
+              frag.appendChild(document.createTextNode(lines[j]));
+            }
+            // 除了最后一段，其他换行都加 <br>
+            if (j < lines.length - 1) {
+              var br = document.createElement("br");
+              frag.appendChild(br);
+            }
+          }
+        } else if (t.type === "inline") {
+          try {
+            if (hasKatex) {
+              var span = document.createElement("span");
+              span.className = "katex-inline";
+              span.innerHTML = katex.renderToString(t.content, { throwOnError: false, output: "html" });
+              frag.appendChild(span);
+            } else {
+              frag.appendChild(document.createTextNode("$" + t.content + "$"));
+            }
+          } catch (e) {
+            frag.appendChild(document.createTextNode("$" + t.content + "$"));
+          }
+        } else if (t.type === "block") {
+          try {
+            if (hasKatex) {
+              var div = document.createElement("div");
+              div.className = "katex-block";
+              div.innerHTML = katex.renderToString(t.content, { throwOnError: false, displayMode: true, output: "html" });
+              frag.appendChild(div);
+            } else {
+              var plain = document.createElement("div");
+              plain.className = "katex-block";
+              plain.textContent = "$$" + t.content + "$$";
+              frag.appendChild(plain);
+            }
+          } catch (e) {
+            var plain2 = document.createElement("div");
+            plain2.className = "katex-block";
+            plain2.textContent = "$$" + t.content + "$$";
+            frag.appendChild(plain2);
+          }
+        }
+      }
+      bubble.appendChild(frag);
+      pendingTail = result.tail;
+    }
+
+    // 计划一次增量渲染（带节流，避免每个 token 都改 DOM）
+    function scheduleAppend() {
+      if (appendTimeout) return;
+      appendTimeout = setTimeout(function () {
+        appendTimeout = null;
+        var newText = fullContent.substring(appendedLen);
+        // 上次残留 + 本次新文本
+        var combined = pendingTail + newText;
+        if (combined.length > 0) {
+          flushAppend(combined);
+          appendedLen = fullContent.length - pendingTail.length;
+          // 前 N 行跟随滚动；之后停止跟随，交给用户
+          if (estimateLineCount(fullContent) <= AUTO_SCROLL_LINE_LIMIT) {
+            scrollToBottom(true);
+          }
+        }
+      }, APPEND_INTERVAL_MS);
     }
 
     try {
@@ -1515,9 +1651,9 @@
         }
       }
 
-      // ===== 流式读取（SSE buffer 修复） =====
+      // ===== SSE 流读取 =====
       var reader = response.body.getReader();
-      var decoder = new TextDecoder();
+      var decoder = new TextDecoder("utf-8", { fatal: false });
       var sseBuffer = "";
 
       while (true) {
@@ -1526,66 +1662,124 @@
 
         sseBuffer += decoder.decode(result.value, { stream: true });
         var lines = sseBuffer.split("\n");
-        // 保留最后一条可能不完整的行
+        // 最后一条可能不完整，保留到 buffer
         sseBuffer = lines.pop();
 
         for (var li = 0; li < lines.length; li++) {
-          var line = lines[li].trim();
-          if (line === "" || line === "data: [DONE]") continue;
-          if (!line.startsWith("data: ")) continue;
+          var line = lines[li];
+          if (!line) continue;
+          // 去掉 \r
+          if (line.charAt(line.length - 1) === "\r") line = line.slice(0, -1);
+          if (!line.startsWith("data:")) continue;
+          var payload = line.substring(5);
+          if (payload.charAt(0) === " ") payload = payload.substring(1);
+          if (payload === "[DONE]") continue;
 
           try {
-            var data = JSON.parse(line.slice(6));
+            var data = JSON.parse(payload);
             var delta = data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content;
             if (!delta) continue;
 
-            if (fullContent.length === 0) {
-              bubble.innerHTML = "";
-            }
             fullContent += delta;
-
-            // 节流全量重渲染——公式不会被 chunk 边界截断
-            if (renderTimeout) clearTimeout(renderTimeout);
-            renderTimeout = setTimeout(doRender, CONFIG.RENDER_INTERVAL);
+            scheduleAppend();
           } catch (e) {
-            // JSON 解析失败——跳过，等待下一个完整 chunk
+            // 解析失败——跳过，等待下一条完整 data:
           }
         }
       }
 
-      // 处理 buffer 中残留的最后一行
-      if (sseBuffer.trim() && sseBuffer.trim() !== "data: [DONE]" && sseBuffer.trim().startsWith("data: ")) {
+      // decoder 收尾
+      try {
+        var decoderTail = decoder.decode();
+        if (decoderTail) sseBuffer += decoderTail;
+      } catch (e) {}
+
+      // buffer 残留行兜底
+      if (sseBuffer && sseBuffer.charAt(0) !== ":" && sseBuffer.trim().startsWith("data:")) {
         try {
-          var remainData = JSON.parse(sseBuffer.trim().slice(6));
-          var remainDelta = remainData.choices && remainData.choices[0] && remainData.choices[0].delta && remainData.choices[0].delta.content;
-          if (remainDelta) fullContent += remainDelta;
+          var tailLine = sseBuffer;
+          if (tailLine.charAt(tailLine.length - 1) === "\r") tailLine = tailLine.slice(0, -1);
+          var lastPayload = tailLine.substring(5);
+          if (lastPayload.charAt(0) === " ") lastPayload = lastPayload.substring(1);
+          if (lastPayload !== "[DONE]") {
+            var lastData = JSON.parse(lastPayload);
+            var lastDelta = lastData.choices && lastData.choices[0] && lastData.choices[0].delta && lastData.choices[0].delta.content;
+            if (lastDelta) fullContent += lastDelta;
+          }
         } catch (e) { /* ignore */ }
       }
 
-      // ===== 最终渲染 =====
-      if (renderTimeout) clearTimeout(renderTimeout);
+      // ===== 流式收尾：把 pending 定时器立即 flush =====
+      if (appendTimeout) {
+        clearTimeout(appendTimeout);
+        appendTimeout = null;
+      }
+      // 强制 flush 最后一段新文本 + 残留的未配对 $ 片段
+      var remainingNew = fullContent.substring(appendedLen);
+      var remainingCombined = pendingTail + remainingNew;
+      if (remainingCombined.length > 0) {
+        // 最后一段：忽略未配对 $ 尾，当作文本输出
+        if (!hasClearedPlaceholder) {
+          bubble.innerHTML = "";
+          hasClearedPlaceholder = true;
+        }
+        var lastFrag = document.createDocumentFragment();
+        var lastLines = remainingCombined.split("\n");
+        for (var lk = 0; lk < lastLines.length; lk++) {
+          if (lastLines[lk].length > 0) {
+            lastFrag.appendChild(document.createTextNode(lastLines[lk]));
+          }
+          if (lk < lastLines.length - 1) {
+            var lastBr = document.createElement("br");
+            lastFrag.appendChild(lastBr);
+          }
+        }
+        bubble.appendChild(lastFrag);
+        pendingTail = "";
+      }
 
       if (!fullContent.trim()) {
         throw new Error("未收到有效响应");
       }
 
-      // 添加到 chatData
+      // ===== 最终一次全量渲染（markdown 格式化）——流结束后只做一次 =====
+      // 注意：不自动滚动到底部，由用户自行操作
       var aiMsg = addMessageData("assistant", fullContent);
       aiMsgDiv.dataset.msgId = aiMsg.id;
 
-      // 最终全量渲染
       bubble.innerHTML = renderContent(fullContent);
       appendActions(bubble, aiMsgDiv, fullContent);
       autoScaleKatex(bubble);
-      scrollToBottom();
       saveChatHistory();
 
     } catch (err) {
-      if (renderTimeout) clearTimeout(renderTimeout);
+      if (appendTimeout) {
+        clearTimeout(appendTimeout);
+        appendTimeout = null;
+      }
 
       if (err.name === "AbortError") {
         // 用户主动停止——保存已收到的部分内容
         if (fullContent.trim()) {
+          // flush 剩余
+          var remainNew = fullContent.substring(appendedLen);
+          var remainCombined = pendingTail + remainNew;
+          if (remainCombined.length > 0 && !hasClearedPlaceholder) {
+            bubble.innerHTML = "";
+            hasClearedPlaceholder = true;
+          }
+          if (remainCombined.length > 0) {
+            var rf = document.createDocumentFragment();
+            var rl = remainCombined.split("\n");
+            for (var rk = 0; rk < rl.length; rk++) {
+              if (rl[rk].length > 0) rf.appendChild(document.createTextNode(rl[rk]));
+              if (rk < rl.length - 1) {
+                var brr = document.createElement("br");
+                rf.appendChild(brr);
+              }
+            }
+            bubble.appendChild(rf);
+          }
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
 
