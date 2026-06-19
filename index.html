@@ -263,40 +263,6 @@
     outline-offset: 2px;
   }
 
-  /* ========== 消息操作按钮 ========== */
-  .msg-delete {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--c-danger);
-    border: 2px solid var(--c-surface);
-    color: #fff;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    line-height: 1;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.2s, visibility 0.2s;
-    z-index: 10;
-    box-shadow: var(--shadow-sm);
-  }
-  /* hover 和 focus-within 都显示 */
-  .message:hover .msg-delete,
-  .message:focus-within .msg-delete {
-    opacity: 1;
-    visibility: visible;
-  }
-  /* 触摸设备始终显示 */
-  @media (hover: none) {
-    .msg-delete { opacity: 1; visibility: visible; }
-  }
-
   /* ========== 长按气泡弹出菜单 ========== */
   .msg-action-menu {
     position: fixed;
@@ -1381,19 +1347,6 @@
       autoScaleKatex(bubble);
     }
 
-    // 删除按钮
-    var delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "msg-delete";
-    delBtn.title = "删除";
-    delBtn.setAttribute("aria-label", "删除此消息");
-    delBtn.textContent = "×";
-    delBtn.addEventListener("click", function (e) {
-      e.stopPropagation();
-      confirmDeleteMessage(div);
-    });
-    bubble.appendChild(delBtn);
-
     // 长按气泡弹出操作菜单
     attachLongPressToBubble(bubble, div, msg);
 
@@ -1779,17 +1732,9 @@
     }
   }
 
-  /** 向 bubble 追加删除 + 复制按钮 */
+  /** 向 bubble 追加长按操作菜单绑定（移除了原 hover 显示的 × 删除按钮） */
   function appendActions(bubble, msgDiv, content) {
-    // 删除
-    var delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "msg-delete";
-    delBtn.title = "删除";
-    delBtn.setAttribute("aria-label", "删除此消息");
-    delBtn.textContent = "×";
-    delBtn.addEventListener("click", function () { confirmDeleteMessage(msgDiv); });
-    bubble.appendChild(delBtn);
+    attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content });
   }
 
   /** 构造请求——密钥运行时解密，用后不驻留变量 */
