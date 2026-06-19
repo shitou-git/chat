@@ -1647,12 +1647,15 @@
 
     // 流式阶段：对已完整的公式用 KaTeX 直接渲染，其他文本纯文本追加
     // 避免把 $v_{up}$ 拆成逐字符输出，也避免等到流结束才一次性显示所有公式
+    // 注意：必须保证 pos 每次循环至少前进 1 步，避免未配对的 $ 不造成死循环
     function renderIncremental(text) {
       if (!text) return "";
       var result = "";
       var pos = 0;
       var hasKatex = typeof katex !== "undefined";
-      while (pos < text.length) {
+      var len = text.length;
+      while (pos < len) {
+        var advanced = false;
         // 先尝试 $$...$$ 块级公式
         if (text.substr(pos, 2) === "$$") {
           var endIdx = text.indexOf("$$", pos + 2);
@@ -1663,12 +1666,13 @@
                 var rendered = katex.renderToString(formula, { throwOnError: false, displayMode: true, output: "html" });
                 result += '<div class="katex-block">' + rendered + "</div>";
               } catch (e) {
-                result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
-              }
+                  result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
+                }
             } else {
               result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
             }
             pos = endIdx + 2;
+            advanced = true;
             continue;
           }
         }
@@ -1687,15 +1691,25 @@
               result += '<code class="math-fallback">' + escapeHtml(formula2) + "</code>";
             }
             pos = endIdx2 + 1;
+            advanced = true;
             continue;
           }
         }
-        // 文本部分：累计到下一个 $ 或段末
-        var nextDollar = text.indexOf("$", pos);
-        var segEnd = nextDollar === -1 ? text.length : nextDollar;
-        var seg = text.substring(pos, segEnd);
-        result += escapeHtml(seg).replace(/\n/g, "<br>");
-        pos = segEnd;
+        // 到此处：前进至少1步（可能是未配对的 $或普通文本
+        if (!advanced) {
+          var nextDollar = text.indexOf("$", pos + 1);
+          var segEnd;
+          if (nextDollar === -1 || nextDollar <= pos) {
+            segEnd = len;
+          } else {
+            segEnd = nextDollar;
+          }
+          if (segEnd <= pos) segEnd = pos + 1; // 兜底：确保至少前进 1 步
+          var seg = text.substring(pos, segEnd);
+          result += escapeHtml(seg).replace(/\n/g, "<br>");
+          pos = segEnd;
+          advanced = true;
+        }
       }
       return result;
     }
