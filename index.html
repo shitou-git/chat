@@ -15,7 +15,7 @@
     --c-primary-light: #8b5cf6;
     --c-primary-soft: #ede9fe;
     --c-accent: #ec4899;
-    --c-text: #1f2937;
+    --c-text: #0f172a;
     --c-muted: #6b7280;
     --c-bg: linear-gradient(135deg, #faf5ff 0%, #fff7ed 50%, #fdf2f8 100%);
     --c-surface: #fff;
@@ -39,26 +39,44 @@
   /* ========== 暗色模式 ========== */
   @media (prefers-color-scheme: dark) {
     :root {
-      --c-text: #e5e7eb;
+      --c-text: #f3f4f6;
       --c-muted: #9ca3af;
-      --c-bg: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 50%, #16121f 100%);
-      --c-surface: #1e1e2e;
-      --c-surface-2: #1a1a2e;
-      --c-border: #374151;
+      --c-bg: #0b0a12;
+      --c-surface: #1a1826;
+      --c-surface-2: #14121e;
+      --c-border: #2d2a3e;
       --c-primary-soft: #2d1b4e;
       --c-scrollbar: #4b5563;
       --c-scrollbar-hover: #6b7280;
-      --header-grad: linear-gradient(to bottom, #2a2a3e, var(--c-surface-2));
-      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-      --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.4);
-      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
-      --header-btn-hover: rgba(255, 255, 255, 0.1);
+      --header-grad: linear-gradient(to bottom, #1f1b2e, var(--c-surface-2));
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+      --header-btn-hover: rgba(255, 255, 255, 0.08);
     }
-    /* 深色模式下用户气泡改为柔和紫底配白字 */
+    /* 深色模式下用户气泡用柔和深紫底配白字 */
     .message.user .msg-bubble {
       background: #3a2b5a;
       color: #fff;
     }
+    /* 深色模式下 AI 气泡底色与边框更柔和 */
+    .message.ai .msg-bubble {
+      background: var(--c-surface);
+      color: var(--c-text);
+      border: 1px solid var(--c-border);
+    }
+    /* 深色模式下顶部淡入渐变也用深色系 */
+    .chat-messages {
+      background:
+        linear-gradient(
+          to bottom,
+          rgba(31, 27, 46, 0.6) 0%,
+          rgba(31, 27, 46, 0) 24px
+        ),
+        var(--c-surface-2);
+    }
+    /* 深色模式下焦点提示色也调整为更柔和的紫 */
+    :focus-visible { outline: 2px solid var(--c-primary-light); outline-offset: 2px; }
   }
 
   /* ========== 重置 ========== */
