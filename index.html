@@ -1620,6 +1620,23 @@
     var firstTokenTs = 0;                 // 首个 token 到达时间
     var t0 = Date.now();
     var paraCount = 0;                    // 已 flush 段落数（性能日志）
+    var AUTO_SCROLL_LINE_LIMIT = 12;      // AI 回复时跟随滚动的行数（以 \n 计），超过则停止
+    var lineCount = 0;                    // 已渲染行数（近似：按内容中 \n 个数 + 段落追加 1）
+    var userIntervened = false;           // 用户是否手动向上滚过（提前停止跟随）
+
+    // 监听用户主动滚动（仅用于本次 AI 回复过程中）
+    function onUserScroll() {
+      var distanceFromBottom =
+        chatMessages.scrollHeight -
+        chatMessages.scrollTop -
+        chatMessages.clientHeight;
+      // 距离底部超过 30px 即认为用户在往上看
+      if (distanceFromBottom > 30) {
+        userIntervened = true;
+        chatMessages.removeEventListener("scroll", onUserScroll);
+      }
+    }
+    chatMessages.addEventListener("scroll", onUserScroll);
 
     /** 将 pendingParaBuf 中一段完整内容 flush 为可见段落 */
     function flushPending(forceTimeThreshold) {
@@ -1669,6 +1686,18 @@
 
       paraCount++;
       lastFlushTs = Date.now();
+
+      // 行数累加：按 readyText 中 \n 数 + 1（段落本身至少占 1 行）
+      var newLinesInPara = (readyText.match(/\n/g) || []).length;
+      var prevLineCount = lineCount;
+      lineCount += (newLinesInPara + 1);
+
+      // ===== 滚动控制：跟随 12 行后停止；若用户主动向上滚则提前停止 =====
+      if (userIntervened) return;
+      // 只要本次 flush 后累计行数仍 ≤ 12，就跟随滚动
+      if (prevLineCount < AUTO_SCROLL_LINE_LIMIT) {
+        scrollToBottom();
+      }
     }
 
     try {
@@ -1796,6 +1825,8 @@
     } finally {
       toggleSendButton(false);
       abortController = null;
+      // 清理本次 AI 回复期间的滚动监听
+      try { chatMessages.removeEventListener("scroll", onUserScroll); } catch (e) {}
     }
   }
 
