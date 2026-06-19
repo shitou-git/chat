@@ -35,7 +35,7 @@
     --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  /* ========== 暗色模式 ========== */
+  /* ========== 暗色模式（系统偏好 OR 手动类 is-dark 双触发） ========== */
   @media (prefers-color-scheme: dark) {
     :root {
       --c-text: #e5e7eb;
@@ -52,6 +52,29 @@
       --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
     }
   }
+
+  /* 手动切换暗色：通过 body.is-dark 覆盖主题变量 */
+  body.is-dark {
+    --c-text: #e5e7eb;
+    --c-muted: #9ca3af;
+    --c-bg: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 50%, #16121f 100%);
+    --c-surface: #1e1e2e;
+    --c-surface-2: #1a1a2e;
+    --c-border: #374151;
+    --c-primary-soft: #2d1b4e;
+    --c-scrollbar: #4b5563;
+    --c-scrollbar-hover: #6b7280;
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+
+  /* 主题切换按钮：根据 body.is-dark 显示不同图标 */
+  #chatThemeBtn .theme-icon-light { display: inline; }
+  #chatThemeBtn .theme-icon-dark { display: none; }
+  body.is-dark #chatThemeBtn .theme-icon-light { display: none; }
+  body.is-dark #chatThemeBtn .theme-icon-dark { display: inline; }
 
   /* ========== 重置 ========== */
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -707,6 +730,10 @@
     <div class="chat-header-actions">
       <button type="button" class="chat-header-btn" id="chatNewBtn" title="新话题" aria-label="新话题">✚</button>
       <button type="button" class="chat-header-btn" id="chatClearBtn" title="清空记录" aria-label="清空记录">🗑</button>
+      <button type="button" class="chat-header-btn" id="chatThemeBtn" title="切换深色/浅色模式" aria-label="切换主题">
+        <span class="theme-icon-light" aria-hidden="true">🌙</span>
+        <span class="theme-icon-dark" aria-hidden="true">☀</span>
+      </button>
     </div>
   </header>
 
@@ -1064,7 +1091,7 @@
    * DOM 引用
    * ================================================================ */
 
-  var chatMessages, chatInput, chatSendBtn, chatClearBtn, chatNewBtn;
+  var chatMessages, chatInput, chatSendBtn, chatClearBtn, chatNewBtn, chatThemeBtn;
   var chatConfirmOverlay, chatConfirmCancel, chatConfirmOk;
   var chatConfirmTitle, chatConfirmWarn;
   var chatSidebar, chatSidebarOverlay, chatSidebarClose, chatSidebarNewBtn, chatSidebarList;
@@ -2255,6 +2282,7 @@
     chatSendBtn = document.getElementById("chatSendBtn");
     chatClearBtn = document.getElementById("chatClearBtn");
     chatNewBtn = document.getElementById("chatNewBtn");
+    chatThemeBtn = document.getElementById("chatThemeBtn");
     chatConfirmOverlay = document.getElementById("chatConfirmOverlay");
     chatConfirmCancel = document.getElementById("chatConfirmCancel");
     chatConfirmOk = document.getElementById("chatConfirmOk");
@@ -2287,6 +2315,44 @@
     // 新话题
     chatNewBtn.addEventListener("click", startNewSession);
     chatSidebarNewBtn.addEventListener("click", startNewSession);
+
+    // ===== 深色模式切换 =====
+    var THEME_STORAGE_KEY = "lingzhi_theme"; // "dark" / "light" / 未设置=跟随系统
+
+    function applyTheme(theme) {
+      if (theme === "dark") {
+        document.body.classList.add("is-dark");
+      } else if (theme === "light") {
+        document.body.classList.remove("is-dark");
+      } else {
+        // 未手动设置 → 跟随系统 prefers-color-scheme
+        if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+          document.body.classList.add("is-dark");
+        } else {
+          document.body.classList.remove("is-dark");
+        }
+      }
+      if (chatThemeBtn) {
+        chatThemeBtn.setAttribute(
+          "title",
+          document.body.classList.contains("is-dark") ? "切换到浅色模式" : "切换到深色模式"
+        );
+      }
+    }
+
+    function toggleTheme() {
+      var isDark = document.body.classList.contains("is-dark");
+      var next = isDark ? "light" : "dark";
+      try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (e) {}
+      applyTheme(next);
+    }
+
+    if (chatThemeBtn) chatThemeBtn.addEventListener("click", toggleTheme);
+
+    // 初始化主题（在 DOM 准备好时立即应用，避免闪烁）
+    var savedTheme = null;
+    try { savedTheme = localStorage.getItem(THEME_STORAGE_KEY); } catch (e) {}
+    applyTheme(savedTheme);
 
     // 点击标题打开侧栏
     var chatHeaderTitle = document.getElementById("chatHeaderTitle");
