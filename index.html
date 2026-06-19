@@ -1438,26 +1438,30 @@
 
     document.body.appendChild(menu);
 
-    // 定位：根据气泡位置 + 点击位置计算，避免超出屏幕
-    var bubbleRect = bubble.getBoundingClientRect();
+    // 定位：以手指长按位置 (clickX/clickY) 为锚点，避开气泡边界
     var menuRect = menu.getBoundingClientRect();
     var vw = window.innerWidth;
     var vh = window.innerHeight;
+    var margin = 12;
+    var fingerGap = 14; // 与手指保持间距，避免直接覆盖
 
-    var posX = clickX || (bubbleRect.left + bubbleRect.width / 2);
-    var posY = bubbleRect.top + bubbleRect.height + 8;
+    // 水平：以 clickX 为中心，两侧不超出视口
+    var posX = (clickX || vw / 2);
+    var menuLeft = posX - menuRect.width / 2;
+    menuLeft = Math.max(margin, Math.min(menuLeft, vw - menuRect.width - margin));
 
-    // 水平方向修正：确保不超出屏幕
-    posX = Math.max(12, Math.min(posX, vw - menuRect.width - 12));
-
-    // 垂直方向：如果下方空间不够则显示在上方
-    if (posY + menuRect.height > vh - 12 && bubbleRect.top - menuRect.height - 8 > 12) {
-      posY = bubbleRect.top - menuRect.height - 8;
+    // 垂直：优先显示在手指上方；上方空间不足时翻到下方
+    var posY = (clickY || vh / 2);
+    var menuTop;
+    if (posY - fingerGap - menuRect.height >= margin) {
+      menuTop = posY - fingerGap - menuRect.height;
+    } else {
+      menuTop = posY + fingerGap;
     }
-    posY = Math.max(12, Math.min(posY, vh - menuRect.height - 12));
+    menuTop = Math.max(margin, Math.min(menuTop, vh - menuRect.height - margin));
 
-    menu.style.left = Math.round(posX - menuRect.width / 2) + "px";
-    menu.style.top = Math.round(posY) + "px";
+    menu.style.left = Math.round(menuLeft) + "px";
+    menu.style.top = Math.round(menuTop) + "px";
 
     currentActionMenu = menu;
   }
