@@ -1629,7 +1629,6 @@
     abortController = new AbortController();
 
     // ===== 流式渲染：流式期间只追加纯文本，流结束后一次性做 markdown/latex 渲染 =====
-    // （避免不完整的 $v_{up}$ 被逐段解析成错误 HTML）
     var fullContent = "";                 // 完整原文（保存用）
     var pendingText = "";                 // 尚未追加到 DOM 的累积文本
     var lastAppendTs = 0;                 // 上次 DOM 追加时间（节流用）
@@ -1639,9 +1638,12 @@
     var AUTO_SCROLL_LINE_LIMIT = 12;      // 前 N 行跟随滚动，之后停止
     var userIntervened = false;           // 用户是否手动向上滚
     var hasClearedPlaceholder = false;    // 是否已清掉"正在思考"
+    var progScrollUntil = 0;              // 程序触发滚动的保护时间戳，避免 onUserScroll 误判
 
     // 监听用户主动滚动
     function onUserScroll() {
+      // 正在进行程序触发的滚动时，忽略本次事件，防止误判为用户滚动
+      if (Date.now() < progScrollUntil) return;
       var distanceFromBottom =
         chatMessages.scrollHeight -
         chatMessages.scrollTop -
@@ -1653,7 +1655,13 @@
     }
     chatMessages.addEventListener("scroll", onUserScroll);
 
-    // 按换行粗略估算行数（流式跟随滚动的判断依据）
+    // 带程序滚动保护的 scrollToBottom
+    function safeScrollBottom(force) {
+      progScrollUntil = Date.now() + 200;  // 200ms 内的 scroll 事件视为程序触发
+      scrollToBottom(force);
+    }
+
+    // 按换行粗略估算行数
     function estimateLineCount(text) {
       if (!text) return 0;
       var m = text.match(/\n/g);
@@ -1671,7 +1679,6 @@
         hasClearedPlaceholder = true;
       }
 
-      // 纯文本追加：escapeHtml 后把 \n 转 <br>
       var html = escapeHtml(pendingText).replace(/\n/g, "<br>");
       var host = document.createElement("div");
       host.innerHTML = html;
@@ -1681,7 +1688,7 @@
 
       // 前 N 行跟随滚动
       if (!userIntervened && estimateLineCount(fullContent) <= AUTO_SCROLL_LINE_LIMIT) {
-        scrollToBottom();
+        safeScrollBottom(false);
       }
     }
 
@@ -1692,7 +1699,7 @@
       appendActions(bubble, aiMsgDiv, textForBubble);
       if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
       autoScaleKatex(bubble);
-      if (!userIntervened) scrollToBottom(true);
+      if (!userIntervened) safeScrollBottom(true);
     }
 
     try {
@@ -1723,27 +1730,65 @@
         }
       }
 
-      // ===== 读取 SSE 流，逐块累积纯文本 =====
+      // ===== 读取 SSE 流（按标准 SSE：空行分隔事件，支持多行 data: 拼接）=====
       var reader = response.body.getReader();
-      var decoder = new TextDecoder();
-      var sseBuffer = "";
+      var decoder = new TextDecoder("utf-8", { fatal: false });
+      var sseBuffer = "";       // 累积原始字节解码后的字符串
+      var eventBuffer = "";     // 当前事件的累积 data 行（按 SSE 规范：事件以空行结束）
+      var streamDone = false;
 
       while (true) {
         var result = await reader.read();
         if (result.done) break;
 
         sseBuffer += decoder.decode(result.value, { stream: true });
-        var lines = sseBuffer.split("\n");
-        sseBuffer = lines.pop();
+        // SSE 规范：事件以空行（\n\n）分隔，每个事件内可能有多行 data: xxx
+        // 先把 sseBuffer 按 \n\n 拆成完整事件，尾部不完整的留在 sseBuffer
+        while (true) {
+          var sepIdx = sseBuffer.indexOf("\n\n");
+          if (sepIdx === -1) {
+            // 兼容 \r\n\r\n
+            sepIdx = sseBuffer.indexOf("\r\n\r\n");
+            if (sepIdx === -1) break;
+            var rawEvent = sseBuffer.substring(0, sepIdx);
+            sseBuffer = sseBuffer.substring(sepIdx + 4);
+          } else {
+            var rawEvent = sseBuffer.substring(0, sepIdx);
+            sseBuffer = sseBuffer.substring(sepIdx + 2);
+          }
 
-        for (var li = 0; li < lines.length; li++) {
-          var line = lines[li].trim();
-          if (line === "" || line === "data: [DONE]") continue;
-          if (!line.startsWith("data: ")) continue;
+          // 解析单个事件：支持多行 data:，行末带 \n，拼接后 JSON 解析
+          var dataLines = [];
+          var eventLines = rawEvent.split(/\r?\n/);
+          for (var ei = 0; ei < eventLines.length; ei++) {
+            var ln = eventLines[ei];
+            // SSE: 空行不应出现在事件内（已经被外层 \n\n 分隔），忽略
+            if (ln === "") continue;
+            if (ln.charAt(0) === ":") continue;  // SSE: 以冒号开头是注释/心跳
+            // 匹配 field: value
+            var colonIdx = ln.indexOf(":");
+            if (colonIdx === -1) continue;
+            var field = ln.substring(0, colonIdx);
+            var value = ln.charAt(colonIdx + 1) === " " ? ln.substring(colonIdx + 2) : ln.substring(colonIdx + 1);
+            if (field === "data") {
+              dataLines.push(value);
+            }
+            // 其他字段（event: / id: / retry:）暂不处理
+          }
+          if (dataLines.length === 0) continue;
+          var dataString = dataLines.join("\n");
+          if (dataString === "[DONE]") {
+            streamDone = true;
+            continue;
+          }
 
           try {
-            var data = JSON.parse(line.slice(6));
-            var delta = data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content;
+            var data = JSON.parse(dataString);
+            var delta =
+              data.choices &&
+              data.choices[0] &&
+              data.choices[0].delta &&
+              data.choices[0].delta.content;
             if (!delta) continue;
 
             if (fullContent.length === 0) firstTokenTs = Date.now();
@@ -1751,20 +1796,46 @@
             pendingText += delta;
 
             flushStreamAppend(false);
-          } catch (e) { /* ignore parse errors */ }
+          } catch (e) { /* 忽略解析错误 */ }
         }
       }
 
-      // buffer 残留的最后一行
-      if (sseBuffer.trim() && sseBuffer.trim() !== "data: [DONE]" && sseBuffer.trim().startsWith("data: ")) {
-        try {
-          var remainData = JSON.parse(sseBuffer.trim().slice(6));
-          var remainDelta = remainData.choices && remainData.choices[0] && remainData.choices[0].delta && remainData.choices[0].delta.content;
-          if (remainDelta) {
-            fullContent += remainDelta;
-            pendingText += remainDelta;
+      // decoder.final() 清掉缓冲中可能残留的不完整字节
+      try {
+        var tail = decoder.decode();
+        if (tail) sseBuffer += tail;
+      } catch (e) {}
+
+      // 若还有残留的 sseBuffer（没有以 \n\n 结尾的不完整事件），尝试当单个事件解析
+      if (sseBuffer && !streamDone) {
+        var dataLines2 = [];
+        var eventLines2 = sseBuffer.split(/\r?\n/);
+        for (var ei2 = 0; ei2 < eventLines2.length; ei2++) {
+          var ln2 = eventLines2[ei2];
+          if (ln2 === "" || ln2.charAt(0) === ":") continue;
+          var colonIdx2 = ln2.indexOf(":");
+          if (colonIdx2 === -1) continue;
+          var field2 = ln2.substring(0, colonIdx2);
+          var value2 = ln2.charAt(colonIdx2 + 1) === " " ? ln2.substring(colonIdx2 + 2) : ln2.substring(colonIdx2 + 1);
+          if (field2 === "data") dataLines2.push(value2);
+        }
+        if (dataLines2.length > 0) {
+          var dataString2 = dataLines2.join("\n");
+          if (dataString2 !== "[DONE]") {
+            try {
+              var data2 = JSON.parse(dataString2);
+              var delta2 =
+                data2.choices &&
+                data2.choices[0] &&
+                data2.choices[0].delta &&
+                data2.choices[0].delta.content;
+              if (delta2) {
+                fullContent += delta2;
+                pendingText += delta2;
+              }
+            } catch (e) {}
           }
-        } catch (e) { /* ignore */ }
+        }
       }
 
       if (!fullContent.trim()) throw new Error("未收到有效响应");
