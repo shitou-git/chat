@@ -54,6 +54,11 @@
       --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
       --header-btn-hover: rgba(255, 255, 255, 0.1);
     }
+    /* 深色模式下用户气泡改为柔和紫底配白字 */
+    .message.user .msg-bubble {
+      background: #3a2b5a;
+      color: #fff;
+    }
   }
 
   /* ========== 重置 ========== */
@@ -247,8 +252,8 @@
     -webkit-user-drag: none;
   }
   .message.user .msg-bubble {
-    background: var(--btn-grad);
-    color: #fff;
+    background: var(--c-primary-soft);
+    color: var(--c-primary);
     border-bottom-right-radius: 4px;
     width: auto;
     max-width: 85%;
