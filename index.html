@@ -1600,9 +1600,8 @@
     var self = this;
 
     function doRender() {
-      // 全量重渲染——避免公式被流式 chunk 截断
+      // 全量重渲染——避免公式被流式 chunk 截断；长消息不再自动跟随滚动，由用户自己滑动
       bubble.innerHTML = renderContent(fullContent);
-      if (isNearBottom()) scrollToBottom();
       renderTimeout = null;
     }
 
@@ -1697,7 +1696,6 @@
       appendActions(bubble, aiMsgDiv, fullContent);
       attachLongPressToBubble(bubble, aiMsgDiv, aiMsg);
       autoScaleKatex(bubble);
-      scrollToBottom();
       saveChatHistory();
 
     } catch (err) {
