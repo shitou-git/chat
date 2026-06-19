@@ -769,8 +769,6 @@
 
     /** UI */
     MAX_TEXTAREA_HEIGHT: 120,
-    RENDER_INTERVAL: 30,       // ms — 流式渲染节流
-    SCROLL_THRESHOLD: 100,     // px — 距底部多少内自动滚动
     KATEX_WAIT_TIMEOUT: 5000,  // ms — 等待 KaTeX 加载
     MAX_INPUT_LENGTH: 2000,
   };
@@ -1233,15 +1231,6 @@
    * 滚动控制（rAF 节流）
    * ================================================================ */
 
-  function isNearBottom() {
-    return (
-      chatMessages.scrollHeight -
-        chatMessages.scrollTop -
-        chatMessages.clientHeight <
-      CONFIG.SCROLL_THRESHOLD
-    );
-  }
-
   function scrollToBottom(force) {
     if (scrollRafId) {
       if (!force) return;
@@ -1534,7 +1523,7 @@
     var userMsg = addMessageData("user", text);
     var userMsgDiv = createMessageElement(userMsg);
     chatMessages.appendChild(userMsgDiv);
-    scrollToBottom(true);
+    // 用户发送后不再强制滚动到底部，由用户自行滑动阅读
 
     // 身份类问题——只在明确询问AI身份时触发
     // 精确匹配完整短语，避免误判正常问题（如"青光眼是什么"）
@@ -1565,7 +1554,6 @@
       chatMessages.appendChild(aiMsgDiv);
       appendActions(bubbleForId, aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
       attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
-      scrollToBottom();
       saveChatHistory();
       toggleSendButton(false);
       return;
@@ -1583,7 +1571,7 @@
       "</div></div>";
     chatMessages.appendChild(aiMsgDiv);
     var bubble = aiMsgDiv.querySelector(".msg-bubble");
-    scrollToBottom(true);
+    // 不再强制滚动到底部，由用户自行滑动
 
     // 构建上下文（从 chatData，不包含当前占位）
     var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
@@ -1595,15 +1583,8 @@
     abortController = new AbortController();
 
     var fullContent = "";
-    var renderTimeout = null;
-
-    var self = this;
-
-    function doRender() {
-      // 全量重渲染——避免公式被流式 chunk 截断；长消息不再自动跟随滚动，由用户自己滑动
-      bubble.innerHTML = renderContent(fullContent);
-      renderTimeout = null;
-    }
+    var firstChunkTs = 0; // 首个 token 到达时间（TTFT）
+    var t0 = Date.now();
 
     try {
       // ===== 带重试的请求 =====
@@ -1633,10 +1614,12 @@
         }
       }
 
-      // ===== 流式读取（SSE buffer 修复） =====
+      // ===== 非流式：读取全部 SSE 内容到 fullContent，渲染一次 =====
+      // 仍然按 SSE 协议解析，因为接口返回就是 data 行
       var reader = response.body.getReader();
       var decoder = new TextDecoder();
       var sseBuffer = "";
+      var chunkCount = 0;
 
       while (true) {
         var result = await reader.read();
@@ -1644,7 +1627,6 @@
 
         sseBuffer += decoder.decode(result.value, { stream: true });
         var lines = sseBuffer.split("\n");
-        // 保留最后一条可能不完整的行
         sseBuffer = lines.pop();
 
         for (var li = 0; li < lines.length; li++) {
@@ -1656,22 +1638,14 @@
             var data = JSON.parse(line.slice(6));
             var delta = data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content;
             if (!delta) continue;
-
-            if (fullContent.length === 0) {
-              bubble.innerHTML = "";
-            }
+            if (fullContent.length === 0) firstChunkTs = Date.now();
             fullContent += delta;
-
-            // 节流全量重渲染——公式不会被 chunk 边界截断
-            if (renderTimeout) clearTimeout(renderTimeout);
-            renderTimeout = setTimeout(doRender, CONFIG.RENDER_INTERVAL);
-          } catch (e) {
-            // JSON 解析失败——跳过，等待下一个完整 chunk
-          }
+            chunkCount++;
+          } catch (e) { /* ignore */ }
         }
       }
 
-      // 处理 buffer 中残留的最后一行
+      // buffer 残留的最后一行
       if (sseBuffer.trim() && sseBuffer.trim() !== "data: [DONE]" && sseBuffer.trim().startsWith("data: ")) {
         try {
           var remainData = JSON.parse(sseBuffer.trim().slice(6));
@@ -1680,29 +1654,34 @@
         } catch (e) { /* ignore */ }
       }
 
-      // ===== 最终渲染 =====
-      if (renderTimeout) clearTimeout(renderTimeout);
-
+      // ===== 最终一次性渲染 =====
       if (!fullContent.trim()) {
         throw new Error("未收到有效响应");
       }
 
-      // 添加到 chatData
       var aiMsg = addMessageData("assistant", fullContent);
       aiMsgDiv.dataset.msgId = aiMsg.id;
 
-      // 最终全量渲染
+      var renderStart = Date.now();
       bubble.innerHTML = renderContent(fullContent);
       appendActions(bubble, aiMsgDiv, fullContent);
       attachLongPressToBubble(bubble, aiMsgDiv, aiMsg);
       autoScaleKatex(bubble);
+      var renderMs = Date.now() - renderStart;
+
+      var totalMs = Date.now() - t0;
+      var ttfbMs = firstChunkTs ? firstChunkTs - t0 : null;
+      console.log(
+        "[灵知-非流式] 全文 " + fullContent.length + " 字符 / " + chunkCount +
+        " chunks | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
+        " | 总耗时: " + totalMs + "ms | 渲染耗时: " + renderMs + "ms"
+      );
+
       saveChatHistory();
 
     } catch (err) {
-      if (renderTimeout) clearTimeout(renderTimeout);
-
       if (err.name === "AbortError") {
-        // 用户主动停止——保存已收到的部分内容
+        // 用户主动停止
         if (fullContent.trim()) {
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
@@ -1713,7 +1692,6 @@
           autoScaleKatex(bubble);
           saveChatHistory();
         } else {
-          // 没有收到任何内容，移除占位
           aiMsgDiv.remove();
         }
       } else {
