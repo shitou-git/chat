@@ -769,6 +769,7 @@
 
     /** UI */
     MAX_TEXTAREA_HEIGHT: 120,
+    PARA_FLUSH_INTERVAL: 250,  // ms — 段落级流式渲染：超过此时间仍无段落结束就强制 flush 一次
     KATEX_WAIT_TIMEOUT: 5000,  // ms — 等待 KaTeX 加载
     MAX_INPUT_LENGTH: 2000,
   };
@@ -1582,9 +1583,63 @@
 
     abortController = new AbortController();
 
-    var fullContent = "";
-    var firstChunkTs = 0; // 首个 token 到达时间（TTFT）
+    // ===== 段落级增量渲染：流式接收，达到段落边界则 flush =====
+    var fullContent = "";                 // 完整原文（用于最终渲染/保存）
+    var pendingParaBuf = "";              // 当前正在累积、尚未 flush 的段落文本
+    var lastFlushTs = 0;                  // 上次 flush 时间
+    var firstTokenTs = 0;                 // 首个 token 到达时间
     var t0 = Date.now();
+    var paraCount = 0;                    // 已 flush 段落数（性能日志）
+
+    /** 将 pendingParaBuf 中一段完整内容 flush 为可见段落 */
+    function flushPending(forceTimeThreshold) {
+      if (!pendingParaBuf.trim()) return;
+
+      // 双换行 = 段落边界；优先以段落边界 flush
+      var boundaryIdx = -1;
+      var d1 = pendingParaBuf.indexOf("\r\n\r\n");
+      var d2 = pendingParaBuf.indexOf("\n\n");
+      if (d1 !== -1 && d2 !== -1) boundaryIdx = Math.min(d1, d2);
+      else if (d1 !== -1) boundaryIdx = d1;
+      else if (d2 !== -1) boundaryIdx = d2;
+
+      var readyText = "";
+      if (boundaryIdx !== -1) {
+        // 以段落边界为界，前面作为完整段落 flush
+        readyText = pendingParaBuf.slice(0, boundaryIdx).trim();
+        // 跳过边界字符（保留后续内容在 pendingBuf 继续累积）
+        var skipAfter = pendingParaBuf.charAt(boundaryIdx) === "\r" ? 4 : 2;
+        pendingParaBuf = pendingParaBuf.slice(boundaryIdx + skipAfter);
+      } else if (forceTimeThreshold && pendingParaBuf.trim().length > 0) {
+        // 到达时间阈值但暂无段落边界：把当前所有 pending 内容作为一段 flush
+        readyText = pendingParaBuf.trim();
+        pendingParaBuf = "";
+      } else {
+        return; // 没到段落边界且没到时间阈值，不 flush
+      }
+
+      if (!readyText) return;
+
+      // 首个段落：清空 "正在思考" 占位
+      if (paraCount === 0) {
+        bubble.innerHTML = "";
+      }
+
+      var paraNode = document.createElement("div");
+      paraNode.className = "msg-stream-para";
+      paraNode.innerHTML = renderContent(readyText);
+      // 把内部节点搬到气泡末尾（避免包一层多余 div）
+      while (paraNode.firstChild) {
+        bubble.appendChild(paraNode.firstChild);
+      }
+
+      // 段落之间用换行分隔，避免挤成一团
+      var br = document.createElement("br");
+      bubble.appendChild(br);
+
+      paraCount++;
+      lastFlushTs = Date.now();
+    }
 
     try {
       // ===== 带重试的请求 =====
@@ -1614,12 +1669,10 @@
         }
       }
 
-      // ===== 非流式：读取全部 SSE 内容到 fullContent，渲染一次 =====
-      // 仍然按 SSE 协议解析，因为接口返回就是 data 行
+      // ===== 读取 SSE 流，按段落增量 flush =====
       var reader = response.body.getReader();
       var decoder = new TextDecoder();
       var sseBuffer = "";
-      var chunkCount = 0;
 
       while (true) {
         var result = await reader.read();
@@ -1638,10 +1691,18 @@
             var data = JSON.parse(line.slice(6));
             var delta = data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content;
             if (!delta) continue;
-            if (fullContent.length === 0) firstChunkTs = Date.now();
+
+            if (fullContent.length === 0) firstTokenTs = Date.now();
             fullContent += delta;
-            chunkCount++;
-          } catch (e) { /* ignore */ }
+            pendingParaBuf += delta;
+
+            // 尝试 flush：优先按段落边界；若距离上次 flush 已超过阈值也会强制 flush
+            var nowTs = Date.now();
+            var timeThresholdHit = lastFlushTs === 0
+              ? (nowTs - firstTokenTs > CONFIG.PARA_FLUSH_INTERVAL)
+              : (nowTs - lastFlushTs > CONFIG.PARA_FLUSH_INTERVAL);
+            flushPending(timeThresholdHit);
+          } catch (e) { /* ignore parse errors */ }
         }
       }
 
@@ -1650,11 +1711,14 @@
         try {
           var remainData = JSON.parse(sseBuffer.trim().slice(6));
           var remainDelta = remainData.choices && remainData.choices[0] && remainData.choices[0].delta && remainData.choices[0].delta.content;
-          if (remainDelta) fullContent += remainDelta;
+          if (remainDelta) {
+            fullContent += remainDelta;
+            pendingParaBuf += remainDelta;
+          }
         } catch (e) { /* ignore */ }
       }
 
-      // ===== 最终一次性渲染 =====
+      // ===== 最终渲染（保证 markdown/代码块/公式的格式正确） =====
       if (!fullContent.trim()) {
         throw new Error("未收到有效响应");
       }
@@ -1662,26 +1726,23 @@
       var aiMsg = addMessageData("assistant", fullContent);
       aiMsgDiv.dataset.msgId = aiMsg.id;
 
-      var renderStart = Date.now();
       bubble.innerHTML = renderContent(fullContent);
       appendActions(bubble, aiMsgDiv, fullContent);
       attachLongPressToBubble(bubble, aiMsgDiv, aiMsg);
       autoScaleKatex(bubble);
-      var renderMs = Date.now() - renderStart;
 
-      var totalMs = Date.now() - t0;
-      var ttfbMs = firstChunkTs ? firstChunkTs - t0 : null;
+      var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
       console.log(
-        "[灵知-非流式] 全文 " + fullContent.length + " 字符 / " + chunkCount +
-        " chunks | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
-        " | 总耗时: " + totalMs + "ms | 渲染耗时: " + renderMs + "ms"
+        "[灵知-段落流式] 全文 " + fullContent.length + " 字符 / " +
+        paraCount + " 段落 | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
+        " | 总耗时: " + (Date.now() - t0) + "ms"
       );
 
       saveChatHistory();
 
     } catch (err) {
       if (err.name === "AbortError") {
-        // 用户主动停止
+        // 用户主动停止：把当前累积内容作为最终消息保存
         if (fullContent.trim()) {
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
