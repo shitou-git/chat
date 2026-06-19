@@ -254,6 +254,14 @@
     border-bottom-left-radius: 4px;
     width: 100%;
   }
+  /* 文本选择模式：恢复系统文字选框，便于自由拖选复制 */
+  .msg-bubble.is-text-select-mode {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+    outline: 2px dashed var(--c-primary);
+    outline-offset: 2px;
+  }
 
   /* ========== 消息操作按钮 ========== */
   .msg-delete {
@@ -1313,7 +1321,13 @@
       return e.clientY || 0;
     }
 
+    function inTextSelectMode() {
+      return bubble.classList.contains('is-text-select-mode');
+    }
+
     function startLongPress(e) {
+      // 文本选择模式：跳过自定义菜单，交给系统原生文本选择
+      if (inTextSelectMode()) return;
       startX = getClientX(e);
       startY = getClientY(e);
       longPressTimer = setTimeout(function () {
@@ -1343,6 +1357,7 @@
     bubble.addEventListener("touchmove", handleMove, { passive: true });
     bubble.addEventListener("touchcancel", cancelLongPress);
     bubble.addEventListener("contextmenu", function (e) {
+      if (inTextSelectMode()) return;
       e.preventDefault();
       showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
     });
@@ -1403,6 +1418,31 @@
     }
   }
 
+  /** 进入文本选择模式：让系统原生文字选择生效，点击外部自动退出 */
+  var _textSelectModeBubble = null;
+  function enterBubbleTextSelectMode(bubble) {
+    // 清除其他气泡上的模式标记，保证同一时间只有一条消息在文本选择模式
+    if (_textSelectModeBubble && _textSelectModeBubble !== bubble) {
+      _textSelectModeBubble.classList.remove('is-text-select-mode');
+    }
+    _textSelectModeBubble = bubble;
+    bubble.classList.add('is-text-select-mode');
+
+    // 延迟添加点击外部监听，避免当前的菜单点击立即触发退出
+    setTimeout(function () {
+      function onOutside(e) {
+        if (!bubble.parentNode) return; // 元素已删除
+        if (e.target === bubble || bubble.contains(e.target)) return;
+        bubble.classList.remove('is-text-select-mode');
+        if (_textSelectModeBubble === bubble) _textSelectModeBubble = null;
+        document.removeEventListener('click', onOutside, true);
+        document.removeEventListener('touchstart', onOutside, true);
+      }
+      document.addEventListener('click', onOutside, true);
+      document.addEventListener('touchstart', onOutside, true);
+    }, 50);
+  }
+
   function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
     hideMsgActionMenu();
 
@@ -1411,6 +1451,7 @@
 
     // 菜单项
     var items = [
+      { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
