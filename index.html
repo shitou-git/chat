@@ -1406,7 +1406,7 @@
   }
 
   /* ================================================================
-   * 长按气泡操作菜单（复制 / 删除 / 撤销）
+   * 长按气泡操作菜单（复制 / 文本 / 删除）
    * ================================================================ */
 
   var currentActionMenu = null;
@@ -1451,13 +1451,10 @@
 
     // 菜单项
     var items = [
-      { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
+      { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
       { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
-    if (msg.role === "user") {
-      items.push({ icon: "↩", label: "撤销", action: function () { undoLastMessage(msg); } });
-    }
 
     for (var i = 0; i < items.length; i++) {
       if (i > 0) {
@@ -1527,25 +1524,6 @@
       document.execCommand("copy");
       document.body.removeChild(ta);
     } catch (e) {}
-  }
-
-  function undoLastMessage(msg) {
-    // 撤销：从该条用户消息起删除后面的所有消息（用户消息 + 后续 AI 回复）
-    var s = currentSession();
-    if (!s) return;
-    var found = false;
-    var newMessages = [];
-    for (var i = 0; i < s.messages.length; i++) {
-      if (s.messages[i].id === msg.id) {
-        found = true;
-        continue;
-      }
-      if (found) continue;
-      newMessages.push(s.messages[i]);
-    }
-    s.messages = newMessages;
-    saveChatHistory();
-    renderCurrentSession();
   }
 
   /* ================================================================
