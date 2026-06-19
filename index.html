@@ -1524,7 +1524,7 @@
     var userMsg = addMessageData("user", text);
     var userMsgDiv = createMessageElement(userMsg);
     chatMessages.appendChild(userMsgDiv);
-    // 用户发送后不再强制滚动到底部，由用户自行滑动阅读
+    scrollToBottom(true);
 
     // 身份类问题——只在明确询问AI身份时触发
     // 精确匹配完整短语，避免误判正常问题（如"青光眼是什么"）
@@ -1555,6 +1555,7 @@
       chatMessages.appendChild(aiMsgDiv);
       appendActions(bubbleForId, aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
       attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
+      scrollToBottom(true);
       saveChatHistory();
       toggleSendButton(false);
       return;
@@ -1572,7 +1573,7 @@
       "</div></div>";
     chatMessages.appendChild(aiMsgDiv);
     var bubble = aiMsgDiv.querySelector(".msg-bubble");
-    // 不再强制滚动到底部，由用户自行滑动
+    scrollToBottom(true);
 
     // 构建上下文（从 chatData，不包含当前占位）
     var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
