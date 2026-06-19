@@ -491,7 +491,8 @@
     color: var(--c-text);
     background: var(--c-surface);
   }
-  .chat-input:focus { border-color: var(--c-primary); }
+  .chat-input:focus { border-color: var(--c-primary); outline: none; }
+  .chat-input:focus-visible { outline: none; }
   .chat-send-btn {
     width: 44px;
     height: 44px;
