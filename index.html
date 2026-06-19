@@ -1626,26 +1626,24 @@
 
     abortController = new AbortController();
 
-    // ===== 段落级增量渲染：流式接收，达到段落边界则 flush =====
+    // ===== 流式渲染：流式期间只追加纯文本，流结束后一次性做 markdown/latex 渲染 =====
+    // （避免不完整的 $v_{up}$ 被逐段解析成错误 HTML）
     var fullContent = "";                 // 完整原文（保存用）
-    var pendingParaBuf = "";              // 当前正在累积、尚未 flush 的段落文本
-    var lastFlushTs = 0;                  // 上次 flush 时间
+    var pendingText = "";                 // 尚未追加到 DOM 的累积文本
+    var lastAppendTs = 0;                 // 上次 DOM 追加时间（节流用）
+    var APPEND_THROTTLE_MS = 80;          // DOM 追加间隔（ms）
     var firstTokenTs = 0;                 // 首个 token 到达时间
     var t0 = Date.now();
-    var paraCount = 0;                    // 已 flush 段落数（性能日志）
-    var AUTO_SCROLL_LINE_LIMIT = 12;      // AI 回复时跟随滚动的块数（近似行数），超过则停止
-    var blockCount = 0;                   // 已追加的可见块数（更贴近实际滚动量）
-    var userIntervened = false;           // 用户是否手动向上滚过（提前停止跟随）
-    var streamDone = false;               // 流是否接收完毕
-    var stopRequested = false;            // 是否被用户主动停止
+    var AUTO_SCROLL_LINE_LIMIT = 12;      // 前 N 行跟随滚动，之后停止
+    var userIntervened = false;           // 用户是否手动向上滚
+    var hasClearedPlaceholder = false;    // 是否已清掉"正在思考"
 
-    // 监听用户主动滚动（仅用于本次 AI 回复过程中）
+    // 监听用户主动滚动
     function onUserScroll() {
       var distanceFromBottom =
         chatMessages.scrollHeight -
         chatMessages.scrollTop -
         chatMessages.clientHeight;
-      // 距离底部超过 30px 即认为用户在往上看
       if (distanceFromBottom > 30) {
         userIntervened = true;
         chatMessages.removeEventListener("scroll", onUserScroll);
@@ -1653,69 +1651,46 @@
     }
     chatMessages.addEventListener("scroll", onUserScroll);
 
-    /** 追加一段已渲染 HTML 到气泡末尾，返回实际添加的 DOM 节点数（粗略"行"数） */
-    function appendRenderedToBubble(html) {
-      if (!html) return 0;
-      var host = document.createElement("div");
-      host.innerHTML = html;
-      var count = 0;
-      while (host.firstChild) {
-        bubble.appendChild(host.firstChild);
-        count++;
-      }
-      return count;
+    // 按换行粗略估算行数（流式跟随滚动的判断依据）
+    function estimateLineCount(text) {
+      if (!text) return 0;
+      var m = text.match(/\n/g);
+      return (m ? m.length : 0) + 1;
     }
 
-    /** 将 pendingParaBuf 中一段完整内容 flush 为可见段落 */
-    function flushPending(forceTimeThreshold) {
-      if (!pendingParaBuf.trim()) return 0;
+    // 流式阶段：节流式把 pendingText 以纯文本追加到气泡
+    function flushStreamAppend(force) {
+      var nowTs = Date.now();
+      if (!force && lastAppendTs > 0 && nowTs - lastAppendTs < APPEND_THROTTLE_MS) return;
+      if (!pendingText) return;
 
-      // 双换行 = 段落边界；优先以段落边界 flush
-      var boundaryIdx = -1;
-      var d1 = pendingParaBuf.indexOf("\r\n\r\n");
-      var d2 = pendingParaBuf.indexOf("\n\n");
-      if (d1 !== -1 && d2 !== -1) boundaryIdx = Math.min(d1, d2);
-      else if (d1 !== -1) boundaryIdx = d1;
-      else if (d2 !== -1) boundaryIdx = d2;
-
-      var readyText = "";
-      if (boundaryIdx !== -1) {
-        readyText = pendingParaBuf.slice(0, boundaryIdx).trim();
-        var skipAfter = pendingParaBuf.charAt(boundaryIdx) === "\r" ? 4 : 2;
-        pendingParaBuf = pendingParaBuf.slice(boundaryIdx + skipAfter);
-      } else if (forceTimeThreshold && pendingParaBuf.trim().length > 0) {
-        // 时间阈值触发：把当前所有 pending 内容作为一段 flush
-        readyText = pendingParaBuf.trim();
-        pendingParaBuf = "";
-      } else {
-        return 0;
-      }
-
-      if (!readyText) return 0;
-
-      // 首个段落：清空 "正在思考" 占位
-      if (paraCount === 0) {
+      if (!hasClearedPlaceholder) {
         bubble.innerHTML = "";
+        hasClearedPlaceholder = true;
       }
 
-      // 段落之间用换行分隔，避免挤成一团
-      if (paraCount > 0) {
-        var br = document.createElement("br");
-        bubble.appendChild(br);
-      }
+      // 纯文本追加：escapeHtml 后把 \n 转 <br>
+      var html = escapeHtml(pendingText).replace(/\n/g, "<br>");
+      var host = document.createElement("div");
+      host.innerHTML = html;
+      while (host.firstChild) bubble.appendChild(host.firstChild);
+      pendingText = "";
+      lastAppendTs = nowTs;
 
-      var appended = appendRenderedToBubble(renderContent(readyText));
-      // 本次至少计为 1 块，避免 0 计导致永不跟随
-      blockCount += Math.max(appended, 1);
-
-      paraCount++;
-      lastFlushTs = Date.now();
-
-      // ===== 滚动控制：跟随 12 块后停止；若用户主动向上滚则提前停止 =====
-      if (!userIntervened && blockCount <= AUTO_SCROLL_LINE_LIMIT) {
+      // 前 N 行跟随滚动
+      if (!userIntervened && estimateLineCount(fullContent) <= AUTO_SCROLL_LINE_LIMIT) {
         scrollToBottom();
       }
-      return appended;
+    }
+
+    // 流式结束后：一次性渲染完整 markdown/latex，绑定菜单
+    function finalRender(textForBubble, msgObjToAttach) {
+      flushStreamAppend(true);
+      bubble.innerHTML = renderContent(textForBubble);
+      appendActions(bubble, aiMsgDiv, textForBubble);
+      if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
+      autoScaleKatex(bubble);
+      if (!userIntervened) scrollToBottom(true);
     }
 
     try {
@@ -1746,7 +1721,7 @@
         }
       }
 
-      // ===== 读取 SSE 流，按段落增量 flush =====
+      // ===== 读取 SSE 流，逐块累积纯文本 =====
       var reader = response.body.getReader();
       var decoder = new TextDecoder();
       var sseBuffer = "";
@@ -1771,18 +1746,12 @@
 
             if (fullContent.length === 0) firstTokenTs = Date.now();
             fullContent += delta;
-            pendingParaBuf += delta;
+            pendingText += delta;
 
-            // 尝试 flush：优先按段落边界；若距离上次 flush 已超过阈值也会强制 flush
-            var nowTs = Date.now();
-            var timeThresholdHit = lastFlushTs === 0
-              ? (nowTs - firstTokenTs > CONFIG.PARA_FLUSH_INTERVAL)
-              : (nowTs - lastFlushTs > CONFIG.PARA_FLUSH_INTERVAL);
-            flushPending(timeThresholdHit);
+            flushStreamAppend(false);
           } catch (e) { /* ignore parse errors */ }
         }
       }
-      streamDone = true;
 
       // buffer 残留的最后一行
       if (sseBuffer.trim() && sseBuffer.trim() !== "data: [DONE]" && sseBuffer.trim().startsWith("data: ")) {
@@ -1791,50 +1760,22 @@
           var remainDelta = remainData.choices && remainData.choices[0] && remainData.choices[0].delta && remainData.choices[0].delta.content;
           if (remainDelta) {
             fullContent += remainDelta;
-            pendingParaBuf += remainDelta;
+            pendingText += remainDelta;
           }
         } catch (e) { /* ignore */ }
       }
 
-      // ===== 收尾：把 pendingParaBuf 残余 flush 一次，保留流式 DOM，不再全量 innerHTML 重写
-      // 避免清空气泡内容导致闪烁 =====
-      if (!fullContent.trim()) {
-        throw new Error("未收到有效响应");
-      }
+      if (!fullContent.trim()) throw new Error("未收到有效响应");
 
-      // 如果全程没有任何段落被 flush（内容全被 buffer 里），此时再 flush 一次
-      if (paraCount === 0 || pendingParaBuf.trim()) {
-        // 先 flush 残余；仍有残余的话按时间阈值再 flush 一次
-        if (pendingParaBuf.trim()) {
-          flushPending(true);
-        }
-      }
-
+      // ===== 流结束：最终渲染 =====
       var aiMsg = addMessageData("assistant", fullContent);
       aiMsgDiv.dataset.msgId = aiMsg.id;
-
-      // 保留流式追加的 DOM，只做"完善"：
-      // 1) 清理首尾多余 <br>（避免段落开头/结尾留下孤立换行）
-      // 2) 绑定长按菜单
-      // 3) 对代码块 / 公式做自适应 & KaTeX 缩放
-      // 4) 若是用户主动停止的场景，追加一个"(已停止)"提示（可选，避免内容；此处不追加以保持干净）
-      while (bubble.firstChild && bubble.firstChild.nodeType === 1 &&
-             bubble.firstChild.tagName === "BR") {
-        bubble.removeChild(bubble.firstChild);
-      }
-      while (bubble.lastChild && bubble.lastChild.nodeType === 1 &&
-             bubble.lastChild.tagName === "BR") {
-        bubble.removeChild(bubble.lastChild);
-      }
-
-      appendActions(bubble, aiMsgDiv, fullContent);
-      attachLongPressToBubble(bubble, aiMsgDiv, aiMsg);
-      autoScaleKatex(bubble);
+      finalRender(fullContent, aiMsg);
 
       var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
       console.log(
-        "[灵知-段落流式] 全文 " + fullContent.length + " 字符 / " +
-        paraCount + " 段落 | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
+        "[灵知-流式] 全文 " + fullContent.length + " 字符" +
+        " | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
         " | 总耗时: " + (Date.now() - t0) + "ms"
       );
 
@@ -1842,40 +1783,15 @@
 
     } catch (err) {
       if (err.name === "AbortError") {
-        stopRequested = true;
-        // 用户主动停止：把当前累积内容作为最终消息保存
-        // 先把 pendingParaBuf 残余 flush 一次，避免"停止瞬间用户看到的内容与保存内容不一致
         if (fullContent.trim()) {
-          if (pendingParaBuf.trim()) {
-            flushPending(true);
-          }
-          // 若根本没有 flush 过（在首个 token 到达前就停止），且 pendingParaBuf 仍无内容，则清空"正在思考"
-          if (paraCount === 0) {
-            bubble.innerHTML = "";
-            var textNode = document.createTextNode(fullContent || "(已停止)");
-            bubble.appendChild(textNode);
-          }
-          // 清理首尾多余 <br>
-          while (bubble.firstChild && bubble.firstChild.nodeType === 1 &&
-                 bubble.firstChild.tagName === "BR") {
-            bubble.removeChild(bubble.firstChild);
-          }
-          while (bubble.lastChild && bubble.lastChild.nodeType === 1 &&
-                 bubble.lastChild.tagName === "BR") {
-            bubble.removeChild(bubble.lastChild);
-          }
-
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
-          appendActions(bubble, aiMsgDiv, fullContent);
-          attachLongPressToBubble(bubble, aiMsgDiv, partialMsg);
-          autoScaleKatex(bubble);
+          finalRender(fullContent, partialMsg);
           saveChatHistory();
         } else {
           aiMsgDiv.remove();
         }
       } else {
-        // 其他错误：覆盖为错误提示
         var errMsg = { role: "assistant", content: "❌ 出错了：" + err.message };
         bubble.innerHTML = renderContent("❌ 出错了：" + err.message);
         appendActions(bubble, aiMsgDiv, fullContent || "");
@@ -1885,11 +1801,9 @@
     } finally {
       toggleSendButton(false);
       abortController = null;
-      // 清理本次 AI 回复期间的滚动监听
       try { chatMessages.removeEventListener("scroll", onUserScroll); } catch (e) {}
     }
   }
-
   /** 向 bubble 追加长按操作菜单绑定（移除了原 hover 显示的 × 删除按钮） */
   function appendActions(bubble, msgDiv, content) {
     attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content });
