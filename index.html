@@ -1632,11 +1632,12 @@
     var fullContent = "";                 // 完整原文（保存用）
     var pendingText = "";                 // 尚未追加到 DOM 的累积文本
     var lastAppendTs = 0;                 // 上次 DOM 追加时间（节流用）
-    var APPEND_THROTTLE_MS = 80;          // DOM 追加间隔（ms）
+    var APPEND_THROTTLE_MS = 40;          // DOM 追加间隔（ms）——从 80 调小为 40，更新更灵敏
     var firstTokenTs = 0;                 // 首个 token 到达时间
     var t0 = Date.now();
     var AUTO_SCROLL_LINE_LIMIT = 12;      // 前 N 行跟随滚动，之后停止
     var hasClearedPlaceholder = false;    // 是否已清掉"正在思考"
+    var incompleteFormulaTail = "";       // 未配对的 $ 开头的片段，留到下次再处理
 
     // 按换行粗略估算行数
     function estimateLineCount(text) {
@@ -1646,40 +1647,60 @@
     }
 
     // 流式阶段：对已完整的公式用 KaTeX 直接渲染，其他文本纯文本追加
-    // 避免把 $v_{up}$ 拆成逐字符输出，也避免等到流结束才一次性显示所有公式
-    // 注意：必须保证 pos 每次循环至少前进 1 步，避免未配对的 $ 不造成死循环
+    // 末尾未配对的 $ 片段保留到下次再处理，避免公式被拆成两半输出
     function renderIncremental(text) {
       if (!text) return "";
       var result = "";
       var pos = 0;
       var hasKatex = typeof katex !== "undefined";
       var len = text.length;
-      while (pos < len) {
-        var advanced = false;
+      // 检查末尾是否存在未配对的 $（可能是公式的开始但未结束）
+      // 从末尾回溯，找到最后一个 $，如果其后的内容无法构成配对，就把从那个 $ 开始的部分截下来留到下次
+      var tailStart = -1;
+      var lastDollar = text.lastIndexOf("$");
+      if (lastDollar !== -1) {
+        // 检查从 lastDollar 起是否能形成完整公式
+        if (lastDollar === len - 1) {
+          tailStart = lastDollar; // 最后一个字符就是 $，未配对
+        } else {
+          // lastDollar 之后：看看有没有另一个 $ 作为闭合
+          var closingAfter = text.indexOf("$", lastDollar + 1);
+          // 也检查是否是 $$
+          var isDoubleDollar = (lastDollar + 1 < len && text.charAt(lastDollar + 1) === "$");
+          if (closingAfter === -1) {
+            // 末尾没有闭合 $，保留整段
+            tailStart = lastDollar;
+          } else if (isDoubleDollar && closingAfter === lastDollar + 1) {
+            // $$ 开头，但后面没有另一个 $$，也保留
+            tailStart = lastDollar;
+          }
+        }
+      }
+      var processEnd = (tailStart === -1) ? len : tailStart;
+      while (pos < processEnd) {
         // 先尝试 $$...$$ 块级公式
-        if (text.substr(pos, 2) === "$$") {
+        if (pos + 1 < processEnd && text.substr(pos, 2) === "$$") {
           var endIdx = text.indexOf("$$", pos + 2);
-          if (endIdx !== -1) {
+          if (endIdx !== -1 && endIdx + 2 <= processEnd) {
             var formula = text.substring(pos + 2, endIdx).trim();
             if (formula && hasKatex) {
               try {
                 var rendered = katex.renderToString(formula, { throwOnError: false, displayMode: true, output: "html" });
                 result += '<div class="katex-block">' + rendered + "</div>";
               } catch (e) {
-                  result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
-                }
+                result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
+              }
             } else {
               result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
             }
             pos = endIdx + 2;
-            advanced = true;
             continue;
           }
         }
         // 再尝试 $...$ 行内公式
         if (text.charAt(pos) === "$") {
           var endIdx2 = text.indexOf("$", pos + 1);
-          if (endIdx2 !== -1 && endIdx2 > pos + 1) {
+          if (endIdx2 !== -1 && endIdx2 > pos + 1 && endIdx2 + 1 <= processEnd) {
             var formula2 = text.substring(pos + 1, endIdx2).trim();
             if (formula2 && hasKatex) {
               try {
@@ -1691,25 +1712,27 @@
               result += '<code class="math-fallback">' + escapeHtml(formula2) + "</code>";
             }
             pos = endIdx2 + 1;
-            advanced = true;
             continue;
           }
         }
-        // 到此处：前进至少1步（可能是未配对的 $或普通文本
-        if (!advanced) {
-          var nextDollar = text.indexOf("$", pos + 1);
-          var segEnd;
-          if (nextDollar === -1 || nextDollar <= pos) {
-            segEnd = len;
-          } else {
-            segEnd = nextDollar;
-          }
-          if (segEnd <= pos) segEnd = pos + 1; // 兜底：确保至少前进 1 步
-          var seg = text.substring(pos, segEnd);
-          result += escapeHtml(seg).replace(/\n/g, "<br>");
-          pos = segEnd;
-          advanced = true;
+        // 普通文本：累计到下一个 $ 或 processEnd
+        var nextDollar = text.indexOf("$", pos + 1);
+        var segEnd;
+        if (nextDollar === -1 || nextDollar >= processEnd) {
+          segEnd = processEnd;
+        } else {
+          segEnd = nextDollar;
         }
+        if (segEnd <= pos) segEnd = pos + 1;
+        var seg = text.substring(pos, segEnd);
+        result += escapeHtml(seg).replace(/\n/g, "<br>");
+        pos = segEnd;
+      }
+      // 截下来的尾部留给下次 flush
+      if (tailStart !== -1) {
+        incompleteFormulaTail = text.substring(tailStart);
+      } else {
+        incompleteFormulaTail = "";
       }
       return result;
     }
@@ -1717,18 +1740,23 @@
     function flushStreamAppend(force) {
       var nowTs = Date.now();
       if (!force && lastAppendTs > 0 && nowTs - lastAppendTs < APPEND_THROTTLE_MS) return;
-      if (!pendingText) return;
+      if (!pendingText && !incompleteFormulaTail) return;
 
       if (!hasClearedPlaceholder) {
         bubble.innerHTML = "";
         hasClearedPlaceholder = true;
       }
 
-      // 流式增量渲染：已完整的公式直接用 KaTeX，其他文本原样追加
-      var html = renderIncremental(pendingText);
-      var host = document.createElement("div");
-      host.innerHTML = html;
-      while (host.firstChild) bubble.appendChild(host.firstChild);
+      // 把上次留下来的未配对 $ 片段和本次新文本合并
+      var combined = (incompleteFormulaTail || "") + (pendingText || "");
+      var html = renderIncremental(combined);
+      // renderIncremental 内部已更新 incompleteFormulaTail
+
+      if (html) {
+        var host = document.createElement("div");
+        host.innerHTML = html;
+        while (host.firstChild) bubble.appendChild(host.firstChild);
+      }
       pendingText = "";
       lastAppendTs = nowTs;
 
