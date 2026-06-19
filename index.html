@@ -88,14 +88,14 @@
   .chat-header {
     background: var(--header-grad);
     color: var(--c-text);
-    padding: 10px 20px;
+    padding: 6px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-shrink: 0;
     box-shadow: none;
     z-index: 10;
-    border-bottom: 1px solid var(--c-border);
+    border-bottom: none;
     position: relative;
   }
   .chat-menu-btn {
@@ -196,7 +196,13 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    background: var(--c-surface-2);
+    background:
+      linear-gradient(
+        to bottom,
+        rgba(243, 240, 255, 0.25) 0%,
+        rgba(243, 240, 255, 0) 36px
+      ),
+      var(--c-surface-2);
     overscroll-behavior: contain;
     touch-action: pan-y;
     width: 100%;
