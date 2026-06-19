@@ -1671,6 +1671,7 @@
 
     // 流式结束后：一次性渲染完整 markdown/latex，绑定菜单
     // 带兜底逻辑：如果 renderContent 因任何原因返回空或抛错，回退到显示纯文本
+    // 注意：流结束后不自动滚动到底部，由用户自行操作
     function finalRender(textForBubble, msgObjToAttach) {
       flushStreamAppend(true);
       var rendered = "";
@@ -1689,7 +1690,7 @@
       appendActions(bubble, aiMsgDiv, textForBubble);
       if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
       autoScaleKatex(bubble);
-      scrollToBottom(true);
+      // 流结束后不滚动到底部，由用户自行操作
     }
 
     try {
