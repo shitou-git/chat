@@ -1495,12 +1495,12 @@
     var items = [
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
+      { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
-    // 仅 AI 消息显示"重新回答"
+    // 仅 AI 消息显示"重新回答"（放在删除下方）
     if (onRetry && msg.role === "assistant") {
       items.push({ icon: "🔄", label: "重新回答", action: onRetry });
     }
-    items.push({ icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } });
 
     for (var i = 0; i < items.length; i++) {
       if (i > 0) {
