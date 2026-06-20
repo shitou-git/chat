@@ -212,14 +212,6 @@
     margin: 0;
     color: var(--c-text);
   }
-  .chat-title-link {
-    cursor: pointer;
-    padding: 6px 10px;
-    border-radius: 8px;
-    transition: background 0.2s;
-    user-select: none;
-  }
-  .chat-title-link:hover { background: var(--header-btn-hover); }
   .chat-header-actions {
     display: flex;
     gap: 6px;
@@ -344,8 +336,6 @@
     border-bottom-left-radius: 4px;
     width: 100%;
   }
-  /* AI 消息气泡：作为潜在绝对定位容器（position:relative 无视觉影响） */
-  .message.ai .msg-bubble { position: relative; }
   /* 文本选择模式：恢复系统文字选框，便于自由拖选复制 */
   .msg-bubble.is-text-select-mode {
     user-select: text;
@@ -633,14 +623,11 @@
     cursor: pointer;
     transition: background 0.15s;
     position: relative;
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-touch-callout: none;
   }
   .chat-sidebar-item:hover { background: var(--c-surface-2); }
   .chat-sidebar-item.active { background: var(--c-primary-soft); }
   .chat-sidebar-item-icon { font-size: 0.95rem; flex-shrink: 0; margin-top: 1px; }
-  .chat-sidebar-item-info { flex: 1; min-width: 0; padding-right: 8px; }
+  .chat-sidebar-item-info { flex: 1; min-width: 0; padding-right: 44px; }
   .chat-sidebar-item-title {
     font-size: 0.85rem;
     font-weight: 600;
@@ -757,120 +744,6 @@
   }
   .chat-confirm-ok:hover { opacity: 0.9; }
 
-  /* ========== 重命名弹窗 ========== */
-  .chat-rename-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 1400;
-    display: none;
-    justify-content: center;
-    align-items: center;
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
-  }
-  .chat-rename-overlay.show { display: flex; }
-  .chat-rename-modal {
-    background: var(--c-surface);
-    border-radius: 16px;
-    padding: 24px;
-    max-width: 320px;
-    width: calc(100% - 40px);
-    text-align: center;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    animation: modalIn 0.25s ease;
-  }
-  .chat-rename-title {
-    font-size: 1.1rem;
-    font-weight: bold;
-    color: var(--c-text);
-    margin-bottom: 16px;
-  }
-  .chat-rename-input {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    padding: 10px 14px;
-    border: 1.5px solid var(--c-border);
-    border-radius: 8px;
-    background: var(--c-bg);
-    color: var(--c-text);
-    font-size: 0.95rem;
-    font-family: inherit;
-    outline: none;
-    margin-bottom: 20px;
-    transition: border-color 0.2s;
-  }
-  .chat-rename-input:focus {
-    border-color: var(--c-primary);
-    outline: none;
-  }
-  .chat-rename-input:focus-visible { outline: none; }
-  .chat-rename-btns {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-  }
-  .chat-rename-cancel {
-    padding: 10px 24px;
-    border: 1px solid var(--c-border);
-    border-radius: 8px;
-    background: var(--c-surface);
-    color: var(--c-muted);
-    font-size: 0.95rem;
-    cursor: pointer;
-    transition: background 0.2s;
-    font-family: inherit;
-  }
-  .chat-rename-cancel:hover { background: var(--c-surface-2); }
-  .chat-rename-ok {
-    padding: 10px 24px;
-    border: none;
-    border-radius: 8px;
-    background: var(--btn-grad);
-    color: #fff;
-    font-size: 0.95rem;
-    cursor: pointer;
-    transition: opacity 0.2s;
-    font-family: inherit;
-  }
-  .chat-rename-ok:hover { opacity: 0.9; }
-
-  /* ========== 更新提示条 ========== */
-  .chat-update-bar {
-    display: none;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-    background: var(--c-primary-soft);
-    border-bottom: 1px solid var(--c-border);
-    font-size: 0.88rem;
-    color: var(--c-text);
-  }
-  .chat-update-bar.show { display: flex; }
-  .chat-update-text { flex: 1; }
-  .chat-update-btn {
-    padding: 5px 14px;
-    border: none;
-    border-radius: 6px;
-    background: var(--c-primary);
-    color: #fff;
-    font-size: 0.85rem;
-    cursor: pointer;
-    font-family: inherit;
-  }
-  .chat-update-btn:hover { opacity: 0.85; }
-  .chat-update-close {
-    background: transparent;
-    border: none;
-    color: var(--c-muted);
-    font-size: 1.1rem;
-    cursor: pointer;
-    padding: 2px 6px;
-    line-height: 1;
-    font-family: inherit;
-  }
-
   /* ========== 移动端适配 ========== */
   @media (max-width: 600px) {
     .chat-header { padding: 5px 12px; }
@@ -906,7 +779,7 @@
       <span></span><span></span>
     </button>
     <div class="chat-header-title">
-      <h2 class="chat-title-link" id="chatTitleLink" title="点击刷新">灵知</h2>
+      <h2>灵知</h2>
     </div>
     <div class="chat-header-actions">
       <button type="button" class="chat-header-btn chat-header-new-btn" id="chatNewBtn" title="新话题" aria-label="新话题">
@@ -946,12 +819,6 @@
   <div class="chat-sidebar-list" id="chatSidebarList"></div>
 </aside>
 
-<div class="chat-update-bar" id="chatUpdateBar" role="status" aria-live="polite">
-  <span class="chat-update-text">发现新版本</span>
-  <button type="button" class="chat-update-btn" id="chatUpdateBtn">刷新</button>
-  <button type="button" class="chat-update-close" id="chatUpdateClose" aria-label="关闭">×</button>
-</div>
-
 <div class="chat-confirm-overlay" id="chatConfirmOverlay" role="alertdialog" aria-modal="true" aria-labelledby="chatConfirmTitle">
   <div class="chat-confirm-modal">
     <div class="chat-confirm-title" id="chatConfirmTitle">确认清空聊天记录？</div>
@@ -959,17 +826,6 @@
     <div class="chat-confirm-btns">
       <button type="button" class="chat-confirm-cancel" id="chatConfirmCancel">取消</button>
       <button type="button" class="chat-confirm-ok" id="chatConfirmOk">确认</button>
-    </div>
-  </div>
-</div>
-
-<div class="chat-rename-overlay" id="chatRenameOverlay" role="dialog" aria-modal="true" aria-labelledby="chatRenameTitle">
-  <div class="chat-rename-modal">
-    <div class="chat-rename-title" id="chatRenameTitle">重命名会话</div>
-    <input type="text" class="chat-rename-input" id="chatRenameInput" placeholder="输入会话名称" maxlength="50" />
-    <div class="chat-rename-btns">
-      <button type="button" class="chat-rename-cancel" id="chatRenameCancel">取消</button>
-      <button type="button" class="chat-rename-ok" id="chatRenameOk">确认</button>
     </div>
   </div>
 </div>
@@ -991,7 +847,7 @@
 
     /** 模型 */
     MODEL: "agnes-2.0-flash",
-    MAX_TOKENS: 8192,
+    MAX_TOKENS: 2048,
     TEMPERATURE: 0.3,
 
     /** 重试 */
@@ -1004,16 +860,6 @@
     KATEX_WAIT_TIMEOUT: 5000,  // ms — 等待 KaTeX 加载
     MAX_INPUT_LENGTH: 2000,
   };
-
-  /** 身份检测关键词（预处理为小写，避免每次发送都 toLowerCase） */
-  var IDENTITY_KEYWORDS_LOWER = [
-    "你是谁", "您是谁", "你是谁呀", "你是谁啊",
-    "你叫什么名字", "你叫啥",
-    "你的名字", "您的名字",
-    "你是哪位", "你是哪个", "你是什么东西",
-    "介绍一下你自己", "介绍一下自己", "介绍你自己", "自我介绍",
-    "who are you", "what is your name", "your name"
-  ];
 
   /*
    * ============================================================
@@ -1095,21 +941,6 @@
   var pendingDeleteMsg = null;
   var scrollRafId = null;
 
-  /** 保存会话防抖：避免流式期间频繁 JSON.stringify + localStorage 写入 */
-  var _saveDebounceTimer = null;
-  var _savePending = false;
-  function scheduleSave() {
-    _savePending = true;
-    if (_saveDebounceTimer) return;
-    _saveDebounceTimer = setTimeout(function () {
-      _saveDebounceTimer = null;
-      if (_savePending) {
-        _savePending = false;
-        saveSessions();
-      }
-    }, 250);
-  }
-
   /** 获取当前会话 */
   function currentSession() {
     return sessions.find(function (s) { return s.id === currentSessionId; });
@@ -1123,10 +954,6 @@
 
   /** 向当前会话添加消息 */
   function addMessageData(role, content) {
-    // 屏蔽 AI 固定开场白
-    if (role === "assistant") {
-      content = content.replace(/^您好！我是 Agnes-2\.0-Flash，由 Sapiens AI 开发。\s*/g, "");
-    }
     var s = currentSession();
     if (!s) return { id: -1, role: role, content: content };
     var msg = { id: nextId++, role: role, content: content };
@@ -1198,34 +1025,15 @@
       createSession();
       closeSidebar();
       renderEmptyState();
+    } else {
+      saveSessions();
+      renderSidebarList();
     }
-    saveSessions();
-    renderSidebarList();
   }
 
-  /** 持久化所有会话（注意：仅在数据真正改变时调用；流式期间走 scheduleSave 防抖） */
+  /** 持久化所有会话 */
   function saveSessions() {
     try {
-      // 去重：按 msg.id 防重复，合法相同内容消息保留
-      // 消息 id 是自增的，正常不会重复；这里仅做兜底，不改变顺序
-      for (var s = 0; s < sessions.length; s++) {
-        var session = sessions[s];
-        if (!session || !session.messages) continue;
-        var seenIds = new Set();
-        var deduped = [];
-        for (var i = 0; i < session.messages.length; i++) {
-          var m = session.messages[i];
-          if (!m || !m.content) continue;
-          if (m.id != null) {
-            if (seenIds.has(m.id)) continue;
-            seenIds.add(m.id);
-          }
-          deduped.push(m);
-        }
-        if (deduped.length !== session.messages.length) {
-          session.messages = deduped;
-        }
-      }
       localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(sessions));
     } catch (e) {
       console.warn("saveSessions error:", e);
@@ -1262,21 +1070,11 @@
       return;
     }
     chatMessages.innerHTML = "";
-
-    // 批量构建 DOM，最后一次性插入，减少重排
-    var frag = document.createDocumentFragment();
-    var seenIds = new Set();
-    var msgs = s.messages;
-    for (var mi = 0; mi < msgs.length; mi++) {
-      var m = msgs[mi];
-      if (!m || !m.content || !m.content.trim()) continue;
-      if (m.id != null) {
-        if (seenIds.has(m.id)) continue;
-        seenIds.add(m.id);
-      }
-      frag.appendChild(createMessageElement(m));
-    }
-    chatMessages.appendChild(frag);
+    s.messages.forEach(function (m) {
+      if (!m.content || !m.content.trim()) return;
+      var el = createMessageElement(m);
+      chatMessages.appendChild(el);
+    });
     scrollToBottom(true);
   }
 
@@ -1288,7 +1086,6 @@
   var chatConfirmOverlay, chatConfirmCancel, chatConfirmOk;
   var chatConfirmTitle, chatConfirmWarn;
   var chatSidebar, chatSidebarOverlay, chatSidebarClose, chatSidebarNewBtn, chatSidebarList;
-  var chatRenameOverlay, chatRenameInput, chatRenameCancel, chatRenameOk;
 
   /* ================================================================
    * 工具函数
@@ -1304,89 +1101,64 @@
       .replace(/'/g, "&#39;");
   }
 
-  /** Unicode 希腊字母 / 数学符号 快速查找表（仅在包含相关字符时启用） */
-  var _GREEK_MAP = {
-    "π": "$\\\\pi$", "α": "$\\\\alpha$", "β": "$\\\\beta$",
-    "γ": "$\\\\gamma$", "δ": "$\\\\delta$", "ε": "$\\\\varepsilon$",
-    "θ": "$\\\\theta$", "λ": "$\\\\lambda$", "μ": "$\\\\mu$",
-    "ρ": "$\\\\rho$", "σ": "$\\\\sigma$", "τ": "$\\\\tau$",
-    "φ": "$\\\\varphi$", "ψ": "$\\\\psi$", "ω": "$\\\\omega$",
-    "Δ": "$\\\\Delta$", "Σ": "$\\\\Sigma$", "Ω": "$\\\\Omega$",
-  };
-  var _SYMBOL_MAP = {
-    "√": "\\sqrt ", "×": "\\times ", "÷": "\\div ",
-    "≤": "\\leq ", "≥": "\\geq ", "≠": "\\neq ",
-    "→": "\\rightarrow ", "←": "\\leftarrow ",
-    "↔": "\\leftrightarrow ", "∞": "\\infty ",
-    "∑": "\\sum ", "∫": "\\int ", "∏": "\\prod ",
-    "∂": "\\partial ", "∇": "\\nabla ",
-    "∈": "\\in ", "∉": "\\notin ",
-    "⊂": "\\subset ", "⊃": "\\supset ",
-    "∪": "\\cup ", "∩": "\\cap ",
-    "∀": "\\forall ", "∃": "\\exists ",
-    "°": "^\\circ ", "±": "\\pm ", "∓": "\\mp ",
-  };
-  // 预计算这两张表用到的所有字符（用于快速检测）
-  var _GREEK_CHARS = "";
-  for (var k in _GREEK_MAP) { if (Object.prototype.hasOwnProperty.call(_GREEK_MAP, k)) _GREEK_CHARS += k; }
-  var _SYMBOL_CHARS = "";
-  for (var k2 in _SYMBOL_MAP) { if (Object.prototype.hasOwnProperty.call(_SYMBOL_MAP, k2)) _SYMBOL_CHARS += k2; }
-
   function fixLatex(text) {
-    if (!text) return text;
-
-    // 阶段1：\sqrt / \frac 格式规范化（只在存在反斜杠时运行）
-    var result = text;
-    if (result.indexOf("\\") !== -1) {
-      result = result
-        .replace(/\\sqrt\{([^{}]+)\}\{([^{}]+)\}/g, "\\sqrt[$1]{$2}")
-        .replace(/\\sqrt(\d)/g, "\\sqrt{$1}")
-        .replace(/\\sqrt(\[[^\]]+\])([a-zA-Z])/g, "\\sqrt$1{$2}")
-        .replace(/\\frac(\d)(\d)/g, "\\frac{$1}{$2}")
-        .replace(/\\frac(\d)\{([^{}]+)\}/g, "\\frac{$1}{$2}")
-        .replace(/\\frac\{([^{}]+)\}(\d)/g, "\\frac{$1}{$2}");
-    }
-
-    // 阶段2：数学符号 → LaTeX（单次扫描，比 20+ 个链式正则快得多）
-    var needsSymbolPass = false;
-    for (var i = 0; i < _SYMBOL_CHARS.length; i++) {
-      if (result.indexOf(_SYMBOL_CHARS.charAt(i)) !== -1) { needsSymbolPass = true; break; }
-    }
-    if (needsSymbolPass) {
-      var _out2 = "";
-      var _last2 = 0;
-      for (var j = 0; j < result.length; j++) {
-        var ch = result.charAt(j);
-        if (_SYMBOL_MAP[ch]) {
-          if (j > _last2) _out2 += result.substring(_last2, j);
-          _out2 += _SYMBOL_MAP[ch];
-          _last2 = j + 1;
-        }
-      }
-      if (_last2 === 0) return result; // 没命中（快速路径）
-      if (_last2 < result.length) _out2 += result.substring(_last2);
-      result = _out2;
-    }
-
-    // 阶段3：希腊字母 → 公式包裹（快速检测，没有就跳过 18 个正则）
-    var needsGreekPass = false;
-    for (var gi = 0; gi < _GREEK_CHARS.length; gi++) {
-      if (result.indexOf(_GREEK_CHARS.charAt(gi)) !== -1) { needsGreekPass = true; break; }
-    }
-    if (needsGreekPass) {
-      // 使用零宽负向后行避免误伤已有 \alpha
-      result = result
-        .replace(/(?<!\\)π/g, "$\\\\pi$").replace(/(?<!\\)α/g, "$\\\\alpha$")
-        .replace(/(?<!\\)β/g, "$\\\\beta$").replace(/(?<!\\)γ/g, "$\\\\gamma$")
-        .replace(/(?<!\\)δ/g, "$\\\\delta$").replace(/(?<!\\)ε/g, "$\\\\varepsilon$")
-        .replace(/(?<!\\)θ/g, "$\\\\theta$").replace(/(?<!\\)λ/g, "$\\\\lambda$")
-        .replace(/(?<!\\)μ/g, "$\\\\mu$").replace(/(?<!\\)ρ/g, "$\\\\rho$")
-        .replace(/(?<!\\)σ/g, "$\\\\sigma$").replace(/(?<!\\)τ/g, "$\\\\tau$")
-        .replace(/(?<!\\)φ/g, "$\\\\varphi$").replace(/(?<!\\)ψ/g, "$\\\\psi$")
-        .replace(/(?<!\\)ω/g, "$\\\\omega$").replace(/(?<!\\)Δ/g, "$\\\\Delta$")
-        .replace(/(?<!\\)Σ/g, "$\\\\Sigma$").replace(/(?<!\\)Ω/g, "$\\\\Omega$");
-    }
-    return result;
+    return text
+      // \sqrt{x}{y} → \sqrt[x]{y}（根号下标旧写法）
+      .replace(/\\sqrt\{([^{}]+)\}\{([^{}]+)\}/g, "\\sqrt[$1]{$2}")
+      // \sqrt2 → \sqrt{2}（裸数字）
+      .replace(/\\sqrt(\d)/g, "\\sqrt{$1}")
+      // \sqrt[3]x → \sqrt[3]{x}（有下标但缺花括号）
+      .replace(/\\sqrt(\[[^\]]+\])([a-zA-Z])/g, "\\sqrt$1{$2}")
+      // \frac12 → \frac{1}{2}（裸数字分数）
+      .replace(/\\frac(\d)(\d)/g, "\\frac{$1}{$2}")
+      .replace(/\\frac(\d)\{([^{}]+)\}/g, "\\frac{$1}{$2}")
+      .replace(/\\frac\{([^{}]+)\}(\d)/g, "\\frac{$1}{$2}")
+      // Unicode 数学符号 → LaTeX
+      .replace(/√/g, "\\sqrt ")
+      .replace(/×/g, "\\times ")
+      .replace(/÷/g, "\\div ")
+      .replace(/≤/g, "\\leq ")
+      .replace(/≥/g, "\\geq ")
+      .replace(/≠/g, "\\neq ")
+      .replace(/→/g, "\\rightarrow ")
+      .replace(/←/g, "\\leftarrow ")
+      .replace(/↔/g, "\\leftrightarrow ")
+      .replace(/∞/g, "\\infty ")
+      .replace(/∑/g, "\\sum ")
+      .replace(/∫/g, "\\int ")
+      .replace(/∏/g, "\\prod ")
+      .replace(/∂/g, "\\partial ")
+      .replace(/∇/g, "\\nabla ")
+      .replace(/∈/g, "\\in ")
+      .replace(/∉/g, "\\notin ")
+      .replace(/⊂/g, "\\subset ")
+      .replace(/⊃/g, "\\supset ")
+      .replace(/∪/g, "\\cup ")
+      .replace(/∩/g, "\\cap ")
+      .replace(/∀/g, "\\forall ")
+      .replace(/∃/g, "\\exists ")
+      .replace(/°/g, "^\\circ ")
+      .replace(/±/g, "\\pm ")
+      .replace(/∓/g, "\\mp ")
+      // 希腊字母（仅在非 \ 开头时替换，避免重复处理 \alpha 等）
+      .replace(/(^|[^\\])π/g, "$1\\pi ")
+      .replace(/(^|[^\\])α/g, "$1\\alpha ")
+      .replace(/(^|[^\\])β/g, "$1\\beta ")
+      .replace(/(^|[^\\])γ/g, "$1\\gamma ")
+      .replace(/(^|[^\\])δ/g, "$1\\delta ")
+      .replace(/(^|[^\\])ε/g, "$1\\varepsilon ")
+      .replace(/(^|[^\\])θ/g, "$1\\theta ")
+      .replace(/(^|[^\\])λ/g, "$1\\lambda ")
+      .replace(/(^|[^\\])μ/g, "$1\\mu ")
+      .replace(/(^|[^\\])ρ/g, "$1\\rho ")
+      .replace(/(^|[^\\])σ/g, "$1\\sigma ")
+      .replace(/(^|[^\\])τ/g, "$1\\tau ")
+      .replace(/(^|[^\\])φ/g, "$1\\varphi ")
+      .replace(/(^|[^\\])ψ/g, "$1\\psi ")
+      .replace(/(^|[^\\])ω/g, "$1\\omega ")
+      .replace(/(^|[^\\])Δ/g, "$1\\Delta ")
+      .replace(/(^|[^\\])Σ/g, "$1\\Sigma ")
+      .replace(/(^|[^\\])Ω/g, "$1\\Omega ");
   }
 
   /**
@@ -1493,25 +1265,26 @@
       return "\x01INLINE" + idx + "\x01";
     });
 
-    // 逐行处理：标题行用 <hN>，其他行用 <br> 分隔，避免孤立的 </p>
-    var lines = html.split(/\r?\n/);
-    var headingRegex = /^(#{1,6})\s+(.+)$/;
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-      var hm = line.match(headingRegex);
-      if (hm) {
-        var level = hm[1].length;
-        lines[i] = "<h" + level + ">" + hm[2] + "</h" + level + ">";
-      } else {
-        // 普通行：加粗 / 列表符号 / 有序列表 / 行内代码占位保留
-        var line2 = line;
-        line2 = line2.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-        line2 = line2.replace(/^[-*]\s+/, "• ");
-        line2 = line2.replace(/^(\d+\.)\s+/, "$1 ");
-        lines[i] = line2;
-      }
-    }
-    html = lines.join("<br>");
+    // 标题
+    html = html.replace(/^#{1,6}\s+(.+)$/gm, function (m, content) {
+      var level = m.match(/^#+/)[0].length;
+      return "</p><h" + level + ">" + content + "</h" + level + "><p>";
+    });
+
+    // 加粗
+    html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+    // 单星号不转斜体（AI 常用 * 做乘法/列表，转斜体误伤太多）
+    // 保留原样
+
+    // 无序列表
+    html = html.replace(/^[-*]\s+/gm, "• ");
+
+    // 有序列表
+    html = html.replace(/^(\d+\.)\s+/gm, "$1 ");
+
+    // 换行
+    html = html.replace(/\n/g, "<br>");
 
     // 还原行内代码
     html = html.replace(/\x01INLINE(\d+)\x01/g, function (m, idx) {
@@ -1526,24 +1299,20 @@
     return escapeHtml(text).replace(/\n/g, "<br>");
   }
 
-  /** 长公式自动缩小字体（在传入的 container 作用域内找，避免全局查询） */
+  /** 长公式自动缩小字体 */
   function autoScaleKatex(container) {
     if (!container) return;
     var blocks = container.querySelectorAll(".katex-block");
-    if (!blocks.length) return;
-    var scales = [0.96, 0.86, 0.76, 0.66, 0.56];
-    for (var i = 0; i < blocks.length; i++) {
-      var block = blocks[i];
-      // 之前已经缩放并且没有溢出，跳过（避免重复测量触发重排）
-      if (block._autoScaled) continue;
+    blocks.forEach(function (block) {
+      block.style.fontSize = "";
       var parentWidth = block.clientWidth || block.parentElement.clientWidth || 300;
-      for (var s = 0; s < scales.length; s++) {
-        block.style.fontSize = scales[s] + "em";
+      var scales = [0.96, 0.86, 0.76, 0.66, 0.56];
+      for (var i = 0; i < scales.length; i++) {
+        block.style.fontSize = scales[i] + "em";
         var el = block.querySelector(".katex-display") || block.querySelector(".katex");
         if (!el || el.scrollWidth <= parentWidth + 2) break;
       }
-      block._autoScaled = true;
-    }
+    });
   }
 
   /* ================================================================
@@ -1552,17 +1321,15 @@
 
   function scrollToBottom(force) {
     if (!chatMessages) return;
+    // 内容尚未溢出：无需滚动，避免无意义的 scrollTop 写入
     if (!force && chatMessages.scrollHeight <= chatMessages.clientHeight + 2) return;
-
-    // 已有待处理的 rAF：强制模式下覆盖，非强制模式等待已存在的 rAF 自然执行
     if (scrollRafId) {
       if (!force) return;
       cancelAnimationFrame(scrollRafId);
     }
-
     scrollRafId = requestAnimationFrame(function () {
       if (!chatMessages) return;
-      // 若距底已经 < 4px，非强制模式不滚动，不打扰用户阅读
+      // 若距底已经 < 4px，视为用户在看最新内容，保持即可，不强制写
       var distanceFromBottom =
         chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight;
       if (!force && distanceFromBottom < 4) {
@@ -1578,13 +1345,9 @@
    * 数据管理 — 已在会话管理区定义
    * ================================================================ */
 
-  /** 保存当前会话（兼容旧调用名）——默认使用防抖，避免流式期间频繁写入 */
-  function saveChatHistory(immediate) {
-    if (immediate) {
-      saveSessions();
-    } else {
-      scheduleSave();
-    }
+  /** 保存当前会话（兼容旧调用名） */
+  function saveChatHistory() {
+    saveSessions();
     // 如果侧栏打开，同步刷新
     if (chatSidebar && chatSidebar.classList.contains("open")) {
       renderSidebarList();
@@ -1592,119 +1355,69 @@
   }
 
   /* ================================================================
-   * 通用长按 + 菜单构建
+   * DOM 渲染
    * ================================================================ */
 
-  /**
-   * 给目标元素绑定长按/右键触发。onTrigger(x, y) 在长按或右键时被调用。
-   * opts.beforeStart(target) — 可选，开始前检查，返回 false 则取消触发。
-   */
-  function attachLongPress(target, onTrigger, opts) {
-    if (!target || !onTrigger) return;
+  /** 给气泡绑定长按/右键操作菜单 */
+  function attachLongPressToBubble(bubble, msgDiv, msg) {
     var longPressTimer = null;
     var startX = 0;
     var startY = 0;
 
-    function getX(e) {
+    function getClientX(e) {
       if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
       if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
       return e.clientX || 0;
     }
-    function getY(e) {
+    function getClientY(e) {
       if (e.touches && e.touches.length > 0) return e.touches[0].clientY;
       if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
       return e.clientY || 0;
     }
-    function cancel() {
-      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+
+    function inTextSelectMode() {
+      return bubble.classList.contains('is-text-select-mode');
     }
-    function start(e) {
-      if (opts && opts.beforeStart && opts.beforeStart(target) === false) return;
-      startX = getX(e);
-      startY = getY(e);
-      cancel();
+
+    function startLongPress(e) {
+      // 文本选择模式：跳过自定义菜单，交给系统原生文本选择
+      if (inTextSelectMode()) return;
+      startX = getClientX(e);
+      startY = getClientY(e);
       longPressTimer = setTimeout(function () {
         if (navigator.vibrate) navigator.vibrate(15);
-        onTrigger(startX, startY);
+        showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
       }, 500);
     }
+
+    function cancelLongPress() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+
     function handleMove(e) {
       if (!longPressTimer) return;
-      var cx = getX(e);
-      var cy = getY(e);
-      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) cancel();
+      var cx = getClientX(e);
+      var cy = getClientY(e);
+      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) {
+        cancelLongPress();
+      }
     }
 
-    target.addEventListener("touchstart", start, { passive: true });
-    target.addEventListener("touchend", cancel);
-    target.addEventListener("touchmove", handleMove, { passive: true });
-    target.addEventListener("touchcancel", cancel);
-    target.addEventListener("mousedown", start);
-    target.addEventListener("mouseup", cancel);
-    target.addEventListener("mouseleave", cancel);
-    target.addEventListener("contextmenu", function (e) {
-      if (opts && opts.beforeStart && opts.beforeStart(target) === false) return;
+    bubble.addEventListener("touchstart", startLongPress, { passive: true });
+    bubble.addEventListener("touchend", cancelLongPress);
+    bubble.addEventListener("touchmove", handleMove, { passive: true });
+    bubble.addEventListener("touchcancel", cancelLongPress);
+    bubble.addEventListener("contextmenu", function (e) {
+      if (inTextSelectMode()) return;
       e.preventDefault();
-      onTrigger(startX || e.clientX, startY || e.clientY);
+      showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
     });
-  }
-
-  /**
-   * 构建并定位操作菜单。items: [{icon, label, action}]。
-   * positionFn(menuRect, vw, vh) 返回 {left, top}。
-   * hideFn — 可选，点击菜单项前调用（用于清除当前菜单）。
-   */
-  function buildActionMenu(items, positionFn, hideFn) {
-    var menu = document.createElement("div");
-    menu.className = "msg-action-menu";
-
-    for (var i = 0; i < items.length; i++) {
-      if (i > 0) {
-        var divider = document.createElement("div");
-        divider.className = "msg-action-menu-divider";
-        menu.appendChild(divider);
-      }
-      var itemEl = document.createElement("div");
-      itemEl.className = "msg-action-menu-item";
-      itemEl.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
-      (function (action) {
-        itemEl.addEventListener("click", function () {
-          if (hideFn) hideFn();
-          if (action) action();
-        });
-      })(items[i].action);
-      menu.appendChild(itemEl);
-    }
-
-    document.body.appendChild(menu);
-
-    var menuRect = menu.getBoundingClientRect();
-    var vw = window.innerWidth;
-    var vh = window.innerHeight;
-    var pos = positionFn(menuRect, vw, vh);
-
-    var margin = 12;
-    var left = Math.max(margin, Math.min(pos.left, vw - menuRect.width - margin));
-    var top = Math.max(margin, Math.min(pos.top, vh - menuRect.height - margin));
-    menu.style.left = Math.round(left) + "px";
-    menu.style.top = Math.round(top) + "px";
-
-    return menu;
-  }
-
-  /* ================================================================
-   * DOM 渲染
-   * ================================================================ */
-
-  /** 给气泡绑定长按/右键操作菜单（onRetry 可选：AI 消息的重新回答） */
-  function attachLongPressToBubble(bubble, msgDiv, msg, onRetry) {
-    attachLongPress(bubble, function (x, y) {
-      showMsgActionMenu(msgDiv, bubble, msg, x, y, onRetry);
-    }, {
-      beforeStart: function (t) {
-        return !t.classList.contains('is-text-select-mode');
-      }
-    });
+    bubble.addEventListener("mousedown", startLongPress);
+    bubble.addEventListener("mouseup", cancelLongPress);
+    bubble.addEventListener("mouseleave", cancelLongPress);
   }
 
   function createMessageElement(msg) {
@@ -1771,34 +1484,65 @@
     }, 50);
   }
 
-  function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY, onRetry) {
+  function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
     hideMsgActionMenu();
 
+    var menu = document.createElement("div");
+    menu.className = "msg-action-menu";
+
+    // 菜单项
     var items = [
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
       { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
-    if (onRetry && msg.role === "assistant") {
-      items.push({ icon: "🔄", label: "重新回答", action: onRetry });
+
+    for (var i = 0; i < items.length; i++) {
+      if (i > 0) {
+        var divider = document.createElement("div");
+        divider.className = "msg-action-menu-divider";
+        menu.appendChild(divider);
+      }
+      var itemEl = document.createElement("div");
+      itemEl.className = "msg-action-menu-item";
+      itemEl.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
+      (function (action) {
+        itemEl.addEventListener("click", function () {
+          hideMsgActionMenu();
+          action();
+        });
+      })(items[i].action);
+      menu.appendChild(itemEl);
     }
 
-    currentActionMenu = buildActionMenu(items, function (menuRect, vw, vh) {
-      var fingerGap = 14;
-      var posX = clickX || vw / 2;
-      var posY = clickY || vh / 2;
+    document.body.appendChild(menu);
 
-      var menuLeft = posX - menuRect.width / 2;
+    // 定位：以手指长按位置 (clickX/clickY) 为锚点，避开气泡边界
+    var menuRect = menu.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var margin = 12;
+    var fingerGap = 14; // 与手指保持间距，避免直接覆盖
 
-      // 垂直：优先显示在手指上方；空间不足时翻到下方
-      var menuTop;
-      if (posY - fingerGap - menuRect.height >= 12) {
-        menuTop = posY - fingerGap - menuRect.height;
-      } else {
-        menuTop = posY + fingerGap;
-      }
-      return { left: menuLeft, top: menuTop };
-    }, hideMsgActionMenu);
+    // 水平：以 clickX 为中心，两侧不超出视口
+    var posX = (clickX || vw / 2);
+    var menuLeft = posX - menuRect.width / 2;
+    menuLeft = Math.max(margin, Math.min(menuLeft, vw - menuRect.width - margin));
+
+    // 垂直：优先显示在手指上方；上方空间不足时翻到下方
+    var posY = (clickY || vh / 2);
+    var menuTop;
+    if (posY - fingerGap - menuRect.height >= margin) {
+      menuTop = posY - fingerGap - menuRect.height;
+    } else {
+      menuTop = posY + fingerGap;
+    }
+    menuTop = Math.max(margin, Math.min(menuTop, vh - menuRect.height - margin));
+
+    menu.style.left = Math.round(menuLeft) + "px";
+    menu.style.top = Math.round(menuTop) + "px";
+
+    currentActionMenu = menu;
   }
 
   function copyMessageText(text) {
@@ -1827,18 +1571,10 @@
    * 输入框
    * ================================================================ */
 
-  var _inputResizeRaf = null;
   function updateInputHeight() {
-    if (_inputResizeRaf) return;
-    _inputResizeRaf = requestAnimationFrame(function () {
-      _inputResizeRaf = null;
-      var targetHeight = chatInput.scrollHeight;
-      if (targetHeight > CONFIG.MAX_TEXTAREA_HEIGHT) {
-        targetHeight = CONFIG.MAX_TEXTAREA_HEIGHT;
-      }
-      chatInput.style.height = "auto";
-      chatInput.style.height = targetHeight + "px";
-    });
+    chatInput.style.height = "auto";
+    chatInput.style.height =
+      Math.min(chatInput.scrollHeight, CONFIG.MAX_TEXTAREA_HEIGHT) + "px";
   }
 
   /* ================================================================
@@ -1890,20 +1626,33 @@
 
     // 身份类问题——只在明确询问AI身份时触发
     // 精确匹配完整短语，避免误判正常问题（如"青光眼是什么"）
+    var identityKeywords = [
+      "你是谁", "您是谁", "你是谁呀", "你是谁啊",
+      "你叫什么名字", "你叫啥",
+      "你的名字", "您的名字",
+      "你是哪位", "你是哪个", "你是什么东西",
+      "介绍一下你自己", "介绍一下自己", "介绍你自己", "自我介绍",
+      "who are you", "what is your name", "your name"
+    ];
     var trimmed = text.trim().toLowerCase();
-    var isIdentityQuestion = false;
-    for (var ki = 0; ki < IDENTITY_KEYWORDS_LOWER.length; ki++) {
-      if (trimmed.indexOf(IDENTITY_KEYWORDS_LOWER[ki]) !== -1) { isIdentityQuestion = true; break; }
-    }
+    var isIdentityQuestion = identityKeywords.some(function (keyword) {
+      return trimmed.indexOf(keyword.toLowerCase()) !== -1;
+    });
     // 二次验证：必须同时包含第二人称代词或英文身份词
-    if (isIdentityQuestion && !/(你|您|who|your name)/i.test(text)) {
-      isIdentityQuestion = false;
+    if (isIdentityQuestion) {
+      var hasIdentityContext = /(你|您|who|your name)/i.test(text);
+      if (!hasIdentityContext) isIdentityQuestion = false;
     }
     if (isIdentityQuestion) {
-      var identityText = "我是灵知，请问有什么可以帮你的？";
-      var aiReply = addMessageData("assistant", identityText);
-      var aiMsgDiv = createMessageElement(aiReply);
+      var aiReply = addMessageData("assistant", "我是灵知，请问有什么可以帮你的？");
+      var aiMsgDiv = document.createElement("div");
+      aiMsgDiv.className = "message ai";
+      aiMsgDiv.dataset.msgId = aiReply.id;
+      aiMsgDiv.innerHTML = '<div class="msg-bubble">' + renderContent("我是灵知，请问有什么可以帮你的？") + "</div>";
+      var bubbleForId = aiMsgDiv.querySelector(".msg-bubble");
       chatMessages.appendChild(aiMsgDiv);
+      appendActions(bubbleForId, aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
+      attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
       scrollToBottom(true);
       saveChatHistory();
       toggleSendButton(false);
@@ -1945,7 +1694,6 @@
     var AUTO_SCROLL_LINE_LIMIT = 12;      // 前 N 行跟随滚动，之后停止
     var hasClearedPlaceholder = false;    // 是否已清掉"正在思考"
     var incompleteFormulaTail = "";       // 未配对的 $ 开头的片段，留到下次再处理
-    var finishReason = null;              // finish_reason，用于判断是否被 max_tokens 截断
 
     // 按换行粗略估算行数
     function estimateLineCount(text) {
@@ -2068,79 +1816,11 @@
       pendingText = "";
       lastAppendTs = nowTs;
 
-      // 前 N 行跟随滚动
-      if (estimateLineCount(fullContent) <= AUTO_SCROLL_LINE_LIMIT) {
+      // 前 N 行跟随滚动（仅在流式增量阶段生效，流结束后的强制 flush 不滚动）
+      if (!force && estimateLineCount(fullContent) <= AUTO_SCROLL_LINE_LIMIT) {
         scrollToBottom(false);
       }
     }
-
-    // "重新回答" 回调（整个 sendMessage 闭包共享）：
-    // 删除本条 AI 消息及其之后所有 assistant 消息，重新发起请求
-    var retry = function () {
-      var session = currentSession();
-      if (!session) return;
-      var msgs = session.messages;
-
-      // 找到最后一条用户消息的下标
-      var lastUserIdx = -1;
-      for (var k = msgs.length - 1; k >= 0; k--) {
-        if (msgs[k].role === "user") { lastUserIdx = k; break; }
-      }
-      if (lastUserIdx < 0) return;
-
-      // 截掉最后一条用户消息之后的所有 assistant 消息（含自动续答产生的多条）
-      session.messages = msgs.slice(0, lastUserIdx + 1);
-
-      // 同时删除 DOM 中这些 assistant 消息（从最后一条 user 消息之后的所有 .message.ai）
-      var lastUserMsgDiv = null;
-      var allMsgs = chatMessages.querySelectorAll(".message");
-      for (var m = allMsgs.length - 1; m >= 0; m--) {
-        if (allMsgs[m].classList.contains("user")) { lastUserMsgDiv = allMsgs[m]; break; }
-      }
-      // 删除 lastUserMsgDiv 之后的所有 AI 消息 DOM
-      if (lastUserMsgDiv) {
-        var next = lastUserMsgDiv.nextSibling;
-        while (next) {
-          var toRemove = next;
-          next = next.nextSibling;
-          if (toRemove.nodeType === 1 && toRemove.classList && toRemove.classList.contains("ai")) {
-            toRemove.remove();
-          } else if (toRemove.nodeType === 3 && !toRemove.textContent.trim()) {
-            toRemove.remove();
-          }
-        }
-      } else {
-        if (aiMsgDiv && aiMsgDiv.parentNode) aiMsgDiv.remove();
-      }
-
-      // 创建新的 AI 消息气泡
-      var newAiMsgDiv = document.createElement("div");
-      newAiMsgDiv.className = "message ai";
-      newAiMsgDiv.innerHTML =
-        '<div class="msg-bubble">正在思考' +
-        '<div class="typing-indicator">' +
-        '<div class="typing-dot"></div>' +
-        '<div class="typing-dot"></div>' +
-        '<div class="typing-dot"></div>' +
-        "</div></div>";
-      chatMessages.appendChild(newAiMsgDiv);
-      var newBubble = newAiMsgDiv.querySelector(".msg-bubble");
-
-      // 重置流式状态，并把 bubble/aiMsgDiv 指向新节点
-      fullContent = "";
-      pendingText = "";
-      incompleteFormulaTail = "";
-      finishReason = null;
-      lastAppendTs = 0;
-      firstTokenTs = 0;
-      bubble = newBubble;
-      aiMsgDiv = newAiMsgDiv;
-      hasClearedPlaceholder = false;
-
-      // 重新发起请求（支持自动续答）
-      runAutoContinueLoop();
-      scrollToBottom(true);
-    };
 
     // 流式结束后：一次性渲染完整 markdown/latex，绑定菜单
     // 带兜底逻辑：如果 renderContent 因任何原因返回空或抛错，回退到显示纯文本
@@ -2153,251 +1833,165 @@
       } catch (e) {
         rendered = "";
       }
+      // renderContent 返回空或比原文明显短时，回退为纯文本
       if (!rendered || rendered.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length <
           textForBubble.replace(/\s+/g, "").length * 0.5) {
         bubble.innerHTML = escapeHtml(textForBubble).replace(/\n/g, "<br>");
       } else {
         bubble.innerHTML = rendered;
       }
-
-      appendActions(bubble, aiMsgDiv, textForBubble, retry);
-      if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach, retry);
+      appendActions(bubble, aiMsgDiv, textForBubble);
+      if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
       autoScaleKatex(bubble);
+      // 流结束后不滚动到底部，由用户自行操作
     }
 
-    // ===== 核心：自动续答循环（可被重试按钮重复调用）=====
-    function runAutoContinueLoop() {
-      return new Promise(async function (resolve) {
-        var AUTO_CONTINUE_LIMIT = 2;
-        var autoContinueLeft = AUTO_CONTINUE_LIMIT;
-        var turnIndex = 0;
-        var accumulatedContent = "";
-        var anyResponseReceived = false;
-        var userAborted = false;
-        var hadError = false;
-        var errorMessage = "";
+    try {
+      // ===== 带重试的请求 =====
+      var response = null;
+      var retryCount = 0;
 
-        do {
-          turnIndex++;
-          // 重置本轮的流式状态（累积文本不重置）
-          finishReason = null;
-          pendingText = "";
-          incompleteFormulaTail = "";
-          lastAppendTs = 0;
+      while (retryCount <= CONFIG.MAX_RETRIES) {
+        try {
+          response = await doFetch(historyMessages);
+          if (response.ok) break;
 
-          // 构建本轮请求的上下文
-          var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
-          var msgs = chatData();
-          msgs.forEach(function (m) {
-            historyMessages.push({ role: m.role, content: m.content });
-          });
-          // 续答轮次：先把已累积的输出补到上下文尾部，再发"继续"
-          if (turnIndex > 1) {
-            if (accumulatedContent.trim()) {
-              historyMessages.push({ role: "assistant", content: accumulatedContent });
-            }
-            historyMessages.push({ role: "user", content: "继续" });
-            // 续答开始前清空 bubble 内残留文本（但保留结构），让后续内容追加显示
-            if (bubble) bubble.innerHTML = "";
-            hasClearedPlaceholder = true;
-          }
-
-          abortController = new AbortController();
-
-          try {
-            // ===== 带重试的请求 =====
-            var response = null;
-            var retryCount = 0;
-
-            while (retryCount <= CONFIG.MAX_RETRIES) {
-              try {
-                response = await doFetch(historyMessages);
-                if (response.ok) break;
-
-                var errorText2 = await response.text();
-                if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
-                  retryCount++;
-                  await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
-                  continue;
-                }
-                throw new Error("API 请求失败：" + response.status + " " + errorText2);
-              } catch (err) {
-                if (err.name === "AbortError") throw err;
-                if (retryCount < CONFIG.MAX_RETRIES) {
-                  retryCount++;
-                  await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
-                  continue;
-                }
-                throw err;
-              }
-            }
-
-            // ===== 读取 SSE 流 =====
-            var reader = response.body.getReader();
-            var decoder = new TextDecoder("utf-8", { fatal: false });
-            var lineBuffer = "";
-
-            while (true) {
-              var result = await reader.read();
-              if (result.done) break;
-
-              lineBuffer += decoder.decode(result.value, { stream: true });
-              var lfIdx;
-              while ((lfIdx = lineBuffer.indexOf("\n")) !== -1) {
-                var rawLine = lineBuffer.substring(0, lfIdx);
-                lineBuffer = lineBuffer.substring(lfIdx + 1);
-                if (rawLine.charAt(rawLine.length - 1) === "\r") rawLine = rawLine.slice(0, -1);
-
-                if (rawLine === "") continue;
-                if (rawLine.charAt(0) === ":") continue;
-                if (!rawLine.startsWith("data:")) continue;
-
-                var payload = rawLine.substring(5);
-                if (payload.charAt(0) === " ") payload = payload.substring(1);
-                if (payload === "[DONE]") continue;
-
-                try {
-                  var sseInfo = extractSSEData(payload);
-                  if (sseInfo.finishReason) finishReason = sseInfo.finishReason;
-                  if (sseInfo.content) {
-                    if (fullContent.length === 0 && firstTokenTs === 0) firstTokenTs = Date.now();
-                    fullContent += sseInfo.content;
-                    pendingText += sseInfo.content;
-                    flushStreamAppend(false);
-                  }
-                } catch (e) {}
-              }
-            }
-
-            // decoder.final() 清尾部
-            try {
-              var decoderTail = decoder.decode();
-              if (decoderTail) lineBuffer += decoderTail;
-            } catch (e) {}
-
-            // lineBuffer 末尾一行
-            if (lineBuffer && lineBuffer.charAt(0) !== ":") {
-              if (lineBuffer.charAt(lineBuffer.length - 1) === "\r") lineBuffer = lineBuffer.slice(0, -1);
-              if (lineBuffer.startsWith("data:")) {
-                var lastPayload2 = lineBuffer.substring(5);
-                if (lastPayload2.charAt(0) === " ") lastPayload2 = lastPayload2.substring(1);
-                if (lastPayload2 !== "[DONE]") {
-                  try {
-                    var tailSse = extractSSEData(lastPayload2);
-                    if (tailSse.finishReason) finishReason = tailSse.finishReason;
-                    if (tailSse.content) {
-                      fullContent += tailSse.content;
-                      pendingText += tailSse.content;
-                    }
-                  } catch (e) {}
-                }
-              }
-            }
-
-            // 本轮强制 flush
-            flushStreamAppend(true);
-
-            if (!fullContent.trim()) {
-              if (turnIndex === 1) throw new Error("未收到有效响应");
-            }
-
-            accumulatedContent += fullContent;
-            anyResponseReceived = true;
-
-            // 重置 fullContent，准备下一轮
-            fullContent = "";
-
-          } catch (err) {
-            if (err.name === "AbortError") {
-              userAborted = true;
-              if (fullContent.trim()) {
-                accumulatedContent += fullContent;
-                anyResponseReceived = true;
-                fullContent = "";
-              }
-            } else {
-              hadError = true;
-              errorMessage = err.message;
-              console.error(err);
-            }
-            break; // 任意错误都停止续答
-          }
-
-          // 判断是否需要续答
-          if (finishReason === "length" && autoContinueLeft > 0) {
-            autoContinueLeft--;
-            await delay(200);
+          var errorText = await response.text();
+          if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
+            retryCount++;
+            await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
             continue;
           }
-          break;
-
-        } while (true);
-
-        // ===== 最终渲染与保存 =====
-        if (hadError) {
-          if (!accumulatedContent.trim()) {
-            bubble.innerHTML = renderContent("❌ 出错了：" + errorMessage);
-            appendActions(bubble, aiMsgDiv, "", retry);
-            attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
-          } else {
-            accumulatedContent += "\n\n*（出错：" + errorMessage + "）*";
-            var aiMsgErr = addMessageData("assistant", accumulatedContent);
-            aiMsgDiv.dataset.msgId = aiMsgErr.id;
-            finalRender(accumulatedContent, aiMsgErr);
+          throw new Error("API 请求失败：" + response.status + " " + errorText);
+        } catch (err) {
+          if (err.name === "AbortError") throw err;
+          if (retryCount < CONFIG.MAX_RETRIES) {
+            retryCount++;
+            await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
+            continue;
           }
-        } else if (!anyResponseReceived && !userAborted) {
-          bubble.innerHTML = renderContent("❌ 未收到有效响应");
-          appendActions(bubble, aiMsgDiv, "", retry);
-          attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
-        } else if (userAborted && accumulatedContent.trim()) {
-          var aiMsgAborted = addMessageData("assistant", accumulatedContent);
-          aiMsgDiv.dataset.msgId = aiMsgAborted.id;
-          finalRender(accumulatedContent, aiMsgAborted);
-          saveChatHistory();
-        } else if (accumulatedContent.trim()) {
-          // 正常路径：最终渲染 + 保存（整条消息只存一次，避免续答产生重复）
-          var aiMsgFinal = addMessageData("assistant", accumulatedContent);
-          aiMsgDiv.dataset.msgId = aiMsgFinal.id;
-          finalRender(accumulatedContent, aiMsgFinal);
+          throw err;
+        }
+      }
 
-          var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
-          console.log(
-            "[灵知-流式] 全文 " + accumulatedContent.length + " 字符" +
-            " | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
-            " | 总耗时: " + (Date.now() - t0) + "ms" +
-            (finishReason === "length" ? " | finish_reason=length（已触发自动续答）" : "")
-          );
+      // ===== 读取 SSE 流：按行逐行处理，避免 \n\n 事件分隔的边界问题 =====
+      // 兼容两种格式：1) 标准 SSE: data: {...}\n\n  2) 非标准：每行 data: {...} 无空行
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder("utf-8", { fatal: false });
+      var lineBuffer = "";  // 累积未完成的一行
 
+      while (true) {
+        var result = await reader.read();
+        if (result.done) break;
+
+        lineBuffer += decoder.decode(result.value, { stream: true });
+        // 按 \n 分割行；最后一段可能不完整，保留到 lineBuffer 中
+        var lfIdx;
+        while ((lfIdx = lineBuffer.indexOf("\n")) !== -1) {
+          var rawLine = lineBuffer.substring(0, lfIdx);
+          lineBuffer = lineBuffer.substring(lfIdx + 1);
+          // 去掉 \r（防止 \r\n 造成问题）
+          if (rawLine.charAt(rawLine.length - 1) === "\r") rawLine = rawLine.slice(0, -1);
+
+          // 跳过空行和心跳
+          if (rawLine === "") continue;
+          if (rawLine.charAt(0) === ":") continue;
+          if (!rawLine.startsWith("data:")) continue;
+
+          var payload = rawLine.substring(5);
+          if (payload.charAt(0) === " ") payload = payload.substring(1);
+          if (payload === "[DONE]") continue;
+
+          try {
+            var data = JSON.parse(payload);
+            var delta =
+              data.choices &&
+              data.choices[0] &&
+              data.choices[0].delta &&
+              data.choices[0].delta.content;
+            if (!delta) continue;
+
+            if (fullContent.length === 0) firstTokenTs = Date.now();
+            fullContent += delta;
+            pendingText += delta;
+            flushStreamAppend(false);
+          } catch (e) { /* 忽略解析错误 */ }
+        }
+      }
+
+      // decoder.final() 清 TextDecoder 内部多字节缓冲
+      try {
+        var decoderTail = decoder.decode();
+        if (decoderTail) lineBuffer += decoderTail;
+      } catch (e) {}
+
+      // lineBuffer 中如果还有最后一行 data: xxx 也尝试解析
+      if (lineBuffer && lineBuffer.charAt(0) !== ":") {
+        if (lineBuffer.charAt(lineBuffer.length - 1) === "\r") lineBuffer = lineBuffer.slice(0, -1);
+        if (lineBuffer.startsWith("data:")) {
+          var lastPayload = lineBuffer.substring(5);
+          if (lastPayload.charAt(0) === " ") lastPayload = lastPayload.substring(1);
+          if (lastPayload !== "[DONE]") {
+            try {
+              var lastData = JSON.parse(lastPayload);
+              var lastDelta =
+                lastData.choices &&
+                lastData.choices[0] &&
+                lastData.choices[0].delta &&
+                lastData.choices[0].delta.content;
+              if (lastDelta) {
+                fullContent += lastDelta;
+                pendingText += lastDelta;
+              }
+            } catch (e) {}
+          }
+        }
+      }
+
+      // 最后强制 flush 一次，确保流式期间显示的内容完整
+      flushStreamAppend(true);
+
+      if (!fullContent.trim()) throw new Error("未收到有效响应");
+
+      // ===== 流结束：最终渲染 =====
+      var aiMsg = addMessageData("assistant", fullContent);
+      aiMsgDiv.dataset.msgId = aiMsg.id;
+      finalRender(fullContent, aiMsg);
+
+      var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
+      console.log(
+        "[灵知-流式] 全文 " + fullContent.length + " 字符" +
+        " | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
+        " | 总耗时: " + (Date.now() - t0) + "ms"
+      );
+
+      saveChatHistory();
+
+    } catch (err) {
+      if (err.name === "AbortError") {
+        if (fullContent.trim()) {
+          var partialMsg = addMessageData("assistant", fullContent);
+          aiMsgDiv.dataset.msgId = partialMsg.id;
+          finalRender(fullContent, partialMsg);
           saveChatHistory();
-        } else if (userAborted) {
+        } else {
           aiMsgDiv.remove();
         }
-
-        toggleSendButton(false);
-        abortController = null;
-        resolve();
-      });
+      } else {
+        var errMsg = { role: "assistant", content: "❌ 出错了：" + err.message };
+        bubble.innerHTML = renderContent("❌ 出错了：" + err.message);
+        appendActions(bubble, aiMsgDiv, fullContent || "");
+        attachLongPressToBubble(bubble, aiMsgDiv, errMsg);
+        console.error(err);
+      }
+    } finally {
+      toggleSendButton(false);
+      abortController = null;
     }
-
-    // 启动自动续答循环
-    await runAutoContinueLoop();
   }
-  /** 向 bubble 追加长按操作菜单绑定（onRetry 可选：AI 消息的重新回答） */
-  function appendActions(bubble, msgDiv, content, onRetry) {
-    attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content }, onRetry);
-  }
-
-  /** 从 SSE payload 文本中提取 finish_reason 和 delta.content，避免重复的 choices 解析代码 */
-  function extractSSEData(payload) {
-    var result = { finishReason: null, content: null };
-    try {
-      var data = JSON.parse(payload);
-      var choice = data.choices && data.choices[0];
-      if (!choice) return result;
-      if (choice.finish_reason) result.finishReason = choice.finish_reason;
-      if (choice.delta && choice.delta.content) result.content = choice.delta.content;
-    } catch (e) {}
-    return result;
+  /** 向 bubble 追加长按操作菜单绑定（移除了原 hover 显示的 × 删除按钮） */
+  function appendActions(bubble, msgDiv, content) {
+    attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content });
   }
 
   /** 构造请求——密钥运行时解密，用后不驻留变量 */
@@ -2453,15 +2047,11 @@
     pendingDeleteSessionId = null;
   }
 
-  /** 焦点陷阱——Tab 在弹窗内循环（支持确认弹窗和重命名弹窗） */
+  /** 焦点陷阱——Tab 在弹窗内循环 */
   function trapFocus(e) {
+    if (!chatConfirmOverlay.classList.contains("show")) return;
     if (e.key !== "Tab") return;
-    var activeOverlay = null;
-    if (chatConfirmOverlay.classList.contains("show")) activeOverlay = chatConfirmOverlay;
-    else if (chatRenameOverlay.classList.contains("show")) activeOverlay = chatRenameOverlay;
-    if (!activeOverlay) return;
-
-    var focusable = activeOverlay.querySelectorAll("button, input");
+    var focusable = chatConfirmOverlay.querySelectorAll("button");
     if (!focusable.length) return;
     var first = focusable[0];
     var last = focusable[focusable.length - 1];
@@ -2559,7 +2149,6 @@
     sessions.forEach(function (s) {
       var item = document.createElement("div");
       item.className = "chat-sidebar-item" + (s.id === currentSessionId ? " active" : "");
-      item.dataset.sessionId = s.id;
 
       var icon = document.createElement("span");
       icon.className = "chat-sidebar-item-icon";
@@ -2585,93 +2174,33 @@
       item.appendChild(icon);
       item.appendChild(info);
 
-      // 点击切换会话（点击 title/删除按钮或其它子菜单时跳过）
+      // 点击切换会话
       item.addEventListener("click", function (e) {
+        // 点击删除按钮及其子元素时不切换
         if (e.target.closest(".chat-sidebar-item-delete")) return;
         switchSession(s.id);
       });
 
-      // 长按/右键：弹出"重命名 / 删除"操作菜单
-      attachSidebarItemMenu(item, s);
+      // 删除按钮
+      var delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "chat-sidebar-item-delete";
+      delBtn.textContent = "×";
+      delBtn.setAttribute("aria-label", "删除此会话");
+      delBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        confirmDeleteSession(s.id);
+      });
+      item.appendChild(delBtn);
 
       chatSidebarList.appendChild(item);
     });
   }
 
-  /** 给侧栏项绑定长按/右键菜单（重命名、删除） */
-  function attachSidebarItemMenu(item, session) {
-    attachLongPress(item, function (x, y) {
-      showSidebarItemMenu(item, session, x, y);
-    });
-  }
-
-  /** 显示侧栏项操作菜单（重命名 / 删除） */
-  var currentSidebarMenu = null;
-  function showSidebarItemMenu(item, session, x, y) {
-    hideSidebarItemMenu();
-
-    var items = [
-      { icon: "✏️", label: "重命名", action: function () { showRenameModal(session.id, session.title || "新话题"); } },
-      { icon: "🗑", label: "删除", action: function () { confirmDeleteSession(session.id); } },
-    ];
-
-    currentSidebarMenu = buildActionMenu(items, function (menuRect, vw, vh) {
-      var rect = item.getBoundingClientRect();
-      var menuLeft = rect.right - menuRect.width - 10;
-      if (menuLeft < 12) menuLeft = rect.left + 10;
-      return { left: menuLeft, top: rect.top };
-    }, hideSidebarItemMenu);
-    currentSidebarMenu.dataset.sessionId = session.id;
-  }
-
-  function hideSidebarItemMenu() {
-    if (currentSidebarMenu) {
-      currentSidebarMenu.remove();
-      currentSidebarMenu = null;
-    }
-  }
-
-  // 点击外部关闭侧栏菜单
-  document.addEventListener("click", function (e) {
-    if (currentSidebarMenu && !currentSidebarMenu.contains(e.target)) hideSidebarItemMenu();
-  }, true);
-  document.addEventListener("touchstart", function (e) {
-    if (currentSidebarMenu && !currentSidebarMenu.contains(e.target)) hideSidebarItemMenu();
-  }, true);
-
   /* ================================================================
    * 初始化
    * ================================================================ */
-
-  /** 重命名弹窗待处理会话 ID */
-  var pendingRenameSessionId = null;
-
-  /** 显示重命名弹窗 */
-  function showRenameModal(sessionId, currentName) {
-    pendingRenameSessionId = sessionId;
-    chatRenameInput.value = currentName || "";
-    chatRenameOverlay.classList.add("show");
-    setTimeout(function () { chatRenameInput.focus(); chatRenameInput.select(); }, 50);
-  }
-
-  /** 隐藏重命名弹窗 */
-  function hideRenameModal() {
-    chatRenameOverlay.classList.remove("show");
-    pendingRenameSessionId = null;
-  }
-
-  /** 确认重命名 */
-  function onRenameOk() {
-    var newName = chatRenameInput.value.trim();
-    if (!newName || !pendingRenameSessionId) { hideRenameModal(); return; }
-    var s = sessions.find(function (x) { return x.id === pendingRenameSessionId; });
-    if (s) {
-      s.title = newName;
-      saveSessions();
-      renderSidebarList();
-    }
-    hideRenameModal();
-  }
 
   function setupChat() {
     // 获取 DOM
@@ -2685,10 +2214,6 @@
     chatConfirmOk = document.getElementById("chatConfirmOk");
     chatConfirmTitle = document.getElementById("chatConfirmTitle");
     chatConfirmWarn = document.getElementById("chatConfirmWarn");
-    chatRenameOverlay = document.getElementById("chatRenameOverlay");
-    chatRenameInput = document.getElementById("chatRenameInput");
-    chatRenameCancel = document.getElementById("chatRenameCancel");
-    chatRenameOk = document.getElementById("chatRenameOk");
     chatSidebar = document.getElementById("chatSidebar");
     chatSidebarOverlay = document.getElementById("chatSidebarOverlay");
     chatSidebarClose = document.getElementById("chatSidebarClose");
@@ -2713,17 +2238,6 @@
     // 新话题
     chatNewBtn.addEventListener("click", startNewSession);
     chatSidebarNewBtn.addEventListener("click", startNewSession);
-
-    // 点击标题刷新页面
-    var chatTitleLink = document.getElementById("chatTitleLink");
-    if (chatTitleLink) {
-      chatTitleLink.addEventListener("click", function () {
-        // 加时间戳绕过 SW 缓存，确保加载最新代码
-        var url = new URL(window.location.href);
-        url.searchParams.set("_t", Date.now());
-        window.location.href = url.toString();
-      });
-    }
 
     // ===== 深色模式切换 =====
     var THEME_STORAGE_KEY = "lingzhi_theme"; // "dark" / "light" / 未设置=跟随系统
@@ -2786,23 +2300,11 @@
       if (e.target === chatConfirmOverlay) hideConfirm();
     });
 
-    // 重命名弹窗
-    chatRenameCancel.addEventListener("click", hideRenameModal);
-    chatRenameOk.addEventListener("click", onRenameOk);
-    chatRenameInput.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); onRenameOk(); }
-    });
-    chatRenameOverlay.addEventListener("click", function (e) {
-      if (e.target === chatRenameOverlay) hideRenameModal();
-    });
-
     // Esc 关闭弹窗 + 焦点陷阱
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
         if (currentActionMenu) {
           hideMsgActionMenu();
-        } else if (chatRenameOverlay.classList.contains("show")) {
-          hideRenameModal();
         } else if (chatConfirmOverlay.classList.contains("show")) {
           hideConfirm();
         } else if (chatSidebar.classList.contains("open")) {
@@ -2841,6 +2343,7 @@
       currentSessionId = sessions[0].id;
     }
     renderCurrentSession();
+    chatInput.focus();
   }
 
   /** 等待 KaTeX 加载完毕再初始化（解决 defer 竞态） */
@@ -2875,27 +2378,15 @@
         .then(function (reg) {
           console.log("[PWA] Service Worker 已注册，作用域：", reg.scope);
           // 有新版本 SW 时提示
-            reg.addEventListener("updatefound", function () {
-              var installing = reg.installing;
-              if (!installing) return;
-              installing.addEventListener("statechange", function () {
-                if (installing.state === "installed" && navigator.serviceWorker.controller) {
-                  console.log("[PWA] 有新版本可用");
-                  var bar = document.getElementById("chatUpdateBar");
-                  var btn = document.getElementById("chatUpdateBtn");
-                  var close = document.getElementById("chatUpdateClose");
-                  if (bar) bar.classList.add("show");
-                  if (btn) btn.addEventListener("click", function () {
-                    var u = new URL(window.location.href);
-                    u.searchParams.set("_t", Date.now());
-                    window.location.href = u.toString();
-                  });
-                  if (close) close.addEventListener("click", function () { bar.classList.remove("show"); });
-                }
-              });
+          reg.addEventListener("updatefound", function () {
+            var installing = reg.installing;
+            if (!installing) return;
+            installing.addEventListener("statechange", function () {
+              if (installing.state === "installed" && navigator.serviceWorker.controller) {
+                console.log("[PWA] 有新版本可用，下次打开页面时生效");
+              }
             });
-            // 每次页面加载主动检查新版本（不依赖浏览器自动检测）
-            reg.update();
+          });
         })
         .catch(function (err) {
           console.warn("[PWA] Service Worker 注册失败：", err);
