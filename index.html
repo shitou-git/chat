@@ -1106,6 +1106,44 @@
       .replace(/'/g, "&#39;");
   }
 
+  /** 统一身份回复：屏蔽 AI 自述为 Sapiens/Agnes 开发的语句
+   *  替换为统一的"灵知"文案
+   */
+  var IDENTITY_REPLY = "你好！我是灵知，由Stone开发，大模型调用Sapiens。";
+  function sanitizeIdentity(text) {
+    if (!text) return text;
+    // 常见的模型自称短语（大小写不敏感，末尾标点一起吞掉避免双句号）
+    var identityPhrases = [
+      /我(是|由|为)(由)?\s*[Ss]apiens[^。\n]{0,25}开发的[^。！？\n]*[。！？.!?]?/g,
+      /我(是|由|为)(由)?\s*[Ss]apiens[^。！？\n]{0,40}开发[^。！？\n]*[。！？.!?]?/g,
+      /我(是|由)(一个)?\s*[Aa]gnes[^。\n]{0,25}开发的[^。！？\n]*[。！？.!?]?/g,
+      /我(是|为)(一个)?\s*[Aa]gnes[^。！？\n]{0,40}开发[^。！？\n]*[。！？.!?]?/g,
+      /我叫?[Aa]gnes[^。！？\n]{0,30}开发[^。！？\n]*[。！？.!?]?/g,
+      /[Ss]apiens[^。！？\n]{0,30}开发的[^。！？\n]*[。！？.!?]?/g,
+      /[Aa]gnes[^。！？\n]{0,30}开发[^。！？\n]*[。！？.!?]?/g,
+      /您好！我是\s*[Aa]gnes[^。！？\n]*[。！？.!?]?/g,
+      /你好！我是\s*[Aa]gnes[^。！？\n]*[。！？.!?]?/g,
+      /我是(一款|一个)?(基于)?\s*[Aa]gnes[^。！？\n]*(开发)?[^。！？\n]*[。！？.!?]?/g,
+    ];
+    var result = text;
+    var replaced = false;
+    for (var i = 0; i < identityPhrases.length; i++) {
+      if (identityPhrases[i].test(result)) {
+        result = result.replace(identityPhrases[i], IDENTITY_REPLY);
+        replaced = true;
+      }
+    }
+    // 如果整个回复只有身份自述（没有其他有效内容），直接用统一回复
+    var trimmed = result.trim();
+    if (!replaced && trimmed.length < 40) {
+      var low = trimmed.toLowerCase();
+      if (/sapiens|agnes|我是由|你好.*我是.*开发/.test(low)) {
+        return IDENTITY_REPLY;
+      }
+    }
+    return result;
+  }
+
   function fixLatex(text) {
     if (!text) return text;
     // 快速路径：检查是否需要处理
@@ -1682,7 +1720,10 @@
       "你的名字", "您的名字",
       "你是哪位", "你是哪个", "你是什么东西",
       "介绍一下你自己", "介绍一下自己", "介绍你自己", "自我介绍",
-      "who are you", "what is your name", "your name"
+      "你是由谁开发的", "由谁开发", "是谁开发的", "谁开发的你", "谁开发了你",
+      "你的开发者", "谁做的你", "谁制作的你", "你的作者",
+      "who are you", "what is your name", "your name",
+      "who made you", "who created you", "who developed you",
     ];
     var trimmed = text.trim().toLowerCase();
     var isIdentityQuestion = false;
@@ -1690,18 +1731,18 @@
       if (trimmed.indexOf(IDENTITY_KW[kwi]) !== -1) { isIdentityQuestion = true; break; }
     }
     // 二次验证：必须同时包含第二人称代词或英文身份词
-    if (isIdentityQuestion && !/(你|您|who|your name)/i.test(text)) {
+    if (isIdentityQuestion && !/(你|您|who|your name|who made|who created|who developed)/i.test(text)) {
       isIdentityQuestion = false;
     }
     if (isIdentityQuestion) {
-      var aiReply = addMessageData("assistant", "我是灵知，请问有什么可以帮你的？");
+      var aiReply = addMessageData("assistant", IDENTITY_REPLY);
       var aiMsgDiv = document.createElement("div");
       aiMsgDiv.className = "message ai";
       aiMsgDiv.dataset.msgId = aiReply.id;
-      aiMsgDiv.innerHTML = '<div class="msg-bubble">' + renderContent("我是灵知，请问有什么可以帮你的？") + "</div>";
+      aiMsgDiv.innerHTML = '<div class="msg-bubble">' + renderContent(IDENTITY_REPLY) + "</div>";
       var bubbleForId = aiMsgDiv.querySelector(".msg-bubble");
       chatMessages.appendChild(aiMsgDiv);
-      appendActions(bubbleForId, aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
+      appendActions(bubbleForId, aiMsgDiv, IDENTITY_REPLY);
       attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
       scrollToBottom(true);
       saveChatHistory();
@@ -2003,6 +2044,9 @@
 
       if (!fullContent.trim()) throw new Error("未收到有效响应");
 
+      // 屏蔽 AI 自述为 Sapiens/Agnes 的语句，统一为灵知文案
+      fullContent = sanitizeIdentity(fullContent);
+
       // ===== 流结束：最终渲染 =====
       var aiMsg = addMessageData("assistant", fullContent);
       aiMsgDiv.dataset.msgId = aiMsg.id;
@@ -2020,6 +2064,7 @@
     } catch (err) {
       if (err.name === "AbortError") {
         if (fullContent.trim()) {
+          fullContent = sanitizeIdentity(fullContent);
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
           finalRender(fullContent, partialMsg);
