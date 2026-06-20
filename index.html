@@ -336,6 +336,34 @@
     border-bottom-left-radius: 4px;
     width: 100%;
   }
+  /* 重试按钮：AI 回复完成后，显示在消息气泡右下角 */
+  .ai-retry-btn {
+    position: absolute;
+    right: 6px;
+    bottom: -4px;
+    background: transparent;
+    border: none;
+    padding: 4px 8px;
+    font-size: 0.85rem;
+    color: var(--c-muted);
+    cursor: pointer;
+    border-radius: 12px;
+    transition: background 0.15s, color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ai-retry-btn:hover {
+    background: var(--c-primary-soft);
+    color: var(--c-primary);
+  }
+  .ai-retry-btn:active {
+    transform: scale(0.95);
+  }
+  /* 消息气泡作为重试按钮定位容器 */
+  .message.ai .msg-bubble {
+    position: relative;
+  }
   /* 文本选择模式：恢复系统文字选框，便于自由拖选复制 */
   .msg-bubble.is-text-select-mode {
     user-select: text;
@@ -1823,29 +1851,89 @@
       }
     }
 
-    // 流式结束后：增量补全——只处理之前 held 住的公式尾部，不整体替换已显示内容
-    // 策略：bubble 中所有 .math-fallback 元素替换为 KaTeX 渲染结果
-    // 如果没有 fallback 或公式已完成，则 bubble 已是正确状态，无需操作
+    // 流式结束后：一次性渲染完整 markdown/latex，绑定菜单
+    // 带兜底逻辑：如果 renderContent 因任何原因返回空或抛错，回退到显示纯文本
+    // 注意：流结束后不自动滚动到底部，由用户自行操作
     function finalRender(textForBubble, msgObjToAttach) {
-      flushStreamAppend(true); // 先确保所有普通文本已追加
-
-      // 找出所有 fallback 公式占位，逐一用 KaTeX 渲染替换
-      var fallbacks = bubble.querySelectorAll(".math-fallback");
-      if (fallbacks.length > 0) {
-        // 更可靠的方式：直接对 textForBubble 做完整 renderContent
-        var rendered;
-        try {
-          rendered = renderContent(textForBubble);
-        } catch (e) {
-          rendered = "";
-        }
-        // 只有当 renderContent 产生了有效结果时才替换，避免回退到纯文本导致闪烁
-        if (rendered && rendered.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length >=
-            textForBubble.replace(/\s+/g, "").length * 0.5) {
-          bubble.innerHTML = rendered;
-        }
+      flushStreamAppend(true);
+      var rendered = "";
+      try {
+        rendered = renderContent(textForBubble);
+      } catch (e) {
+        rendered = "";
       }
-      // 如果没有 fallback，说明所有公式在流式期间已完整渲染，无需任何操作
+      // renderContent 返回空或比原文明显短时，回退为纯文本
+      if (!rendered || rendered.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length <
+          textForBubble.replace(/\s+/g, "").length * 0.5) {
+        bubble.innerHTML = escapeHtml(textForBubble).replace(/\n/g, "<br>");
+      } else {
+        bubble.innerHTML = rendered;
+      }
+      // 追加重试按钮（右下角）
+      var retryBtn = document.createElement("button");
+      retryBtn.type = "button";
+      retryBtn.className = "ai-retry-btn";
+      retryBtn.innerHTML = "🔄 重新回答";
+      retryBtn.title = "让 AI 重新回答最近一个用户问题";
+      retryBtn.addEventListener("click", function () {
+        // 1. 从 chatData 中找到最近一条用户消息的文本
+        var msgs = chatData();
+        var lastUserText = null;
+        for (var i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === "user") { lastUserText = msgs[i].content; break; }
+        }
+        if (!lastUserText) return;
+
+        // 2. 删除本条 AI 消息（数据 + DOM）
+        var curId = parseInt(aiMsgDiv.dataset.msgId, 10);
+        if (curId) removeMessageData(curId);
+        // 同时删除自动续答时追加的其它 assistant 消息
+        var currentSession = currentSession();
+        if (currentSession) {
+          // 只保留用户消息 + 本次之前的 assistant 消息（以最后一条用户消息为分界）
+          var lastUserIdx = -1;
+          for (var j = 0; j < currentSession.messages.length; j++) {
+            if (currentSession.messages[j].role === "user") lastUserIdx = j;
+          }
+          if (lastUserIdx >= 0) {
+            currentSession.messages = currentSession.messages.slice(0, lastUserIdx + 1);
+          }
+        }
+        aiMsgDiv.remove();
+
+        // 3. 创建新 AI 消息气泡 + 重新请求
+        var newAiMsgDiv = document.createElement("div");
+        newAiMsgDiv.className = "message ai";
+        newAiMsgDiv.innerHTML =
+          '<div class="msg-bubble">正在思考' +
+          '<div class="typing-indicator">' +
+          '<div class="typing-dot"></div>' +
+          '<div class="typing-dot"></div>' +
+          '<div class="typing-dot"></div>' +
+          "</div></div>";
+        chatMessages.appendChild(newAiMsgDiv);
+        var newBubble = newAiMsgDiv.querySelector(".msg-bubble");
+
+        // 4. 用当前的 sendMessage 中声明的流式处理函数，重新跑一次
+        //    通过闭包共享 fullContent/pendingText/finishReason/flushStreamAppend/finalRender 等状态
+        //    简单做法：重新初始化状态变量后复用内层函数
+        fullContent = "";
+        pendingText = "";
+        incompleteFormulaTail = "";
+        finishReason = null;
+        lastAppendTs = 0;
+        firstTokenTs = 0;
+        // 把 bubble/aiMsgDiv 绑定到新的节点
+        bubble = newBubble;
+        aiMsgDiv = newAiMsgDiv;
+        hasClearedPlaceholder = false;
+
+        // 5. 直接跑自动续答循环
+        runAutoContinueLoop();
+
+        scrollToBottom(true);
+      });
+      bubble.appendChild(retryBtn);
 
       appendActions(bubble, aiMsgDiv, textForBubble);
       if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
@@ -1853,15 +1941,18 @@
       // 流结束后不滚动到底部，由用户自行操作
     }
 
-    // ===== 多轮请求：检测到 max_tokens 截断时自动续答，最多 AUTO_CONTINUE_LIMIT 次 =====
-    var AUTO_CONTINUE_LIMIT = 2;
-    var autoContinueLeft = AUTO_CONTINUE_LIMIT;
-    var turnIndex = 0;
-    var accumulatedContent = "";   // 所有轮次累积的完整文本（保存用）
-    var anyResponseReceived = false;
-    var userAborted = false;
-    var hadError = false;
-    var errorMessage = "";
+    // ===== 核心：自动续答循环（可被重试按钮重复调用）=====
+    function runAutoContinueLoop() {
+      return new Promise(async function (resolve) {
+
+        var AUTO_CONTINUE_LIMIT = 2;
+        var autoContinueLeft = AUTO_CONTINUE_LIMIT;
+        var turnIndex = 0;
+        var accumulatedContent = "";
+        var anyResponseReceived = false;
+        var userAborted = false;
+        var hadError = false;
+        var errorMessage = "";
 
     // 把用户最后一条消息保存起来，续答时作为上下文的一部分
     // 注意：addMessageData 已在开头执行一次，chatData() 会返回包含这条用户消息的历史
@@ -2088,6 +2179,12 @@
 
     toggleSendButton(false);
     abortController = null;
+        resolve();
+      });
+    }
+
+    // 启动自动续答循环
+    await runAutoContinueLoop();
   }
   /** 向 bubble 追加长按操作菜单绑定（移除了原 hover 显示的 × 删除按钮） */
   function appendActions(bubble, msgDiv, content) {
