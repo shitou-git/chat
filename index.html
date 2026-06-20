@@ -629,7 +629,7 @@
   .chat-sidebar-item:hover { background: var(--c-surface-2); }
   .chat-sidebar-item.active { background: var(--c-primary-soft); }
   .chat-sidebar-item-icon { font-size: 0.95rem; flex-shrink: 0; margin-top: 1px; }
-  .chat-sidebar-item-info { flex: 1; min-width: 0; padding-right: 44px; }
+  .chat-sidebar-item-info { flex: 1; min-width: 0; padding-right: 8px; }
   .chat-sidebar-item-title {
     font-size: 0.85rem;
     font-weight: 600;
@@ -2349,6 +2349,7 @@
     sessions.forEach(function (s) {
       var item = document.createElement("div");
       item.className = "chat-sidebar-item" + (s.id === currentSessionId ? " active" : "");
+      item.dataset.sessionId = s.id;
 
       var icon = document.createElement("span");
       icon.className = "chat-sidebar-item-icon";
@@ -2374,29 +2375,128 @@
       item.appendChild(icon);
       item.appendChild(info);
 
-      // 点击切换会话
+      // 点击切换会话（点击 title/删除按钮或其它子菜单时跳过）
       item.addEventListener("click", function (e) {
-        // 点击删除按钮及其子元素时不切换
         if (e.target.closest(".chat-sidebar-item-delete")) return;
         switchSession(s.id);
       });
 
-      // 删除按钮
-      var delBtn = document.createElement("button");
-      delBtn.type = "button";
-      delBtn.className = "chat-sidebar-item-delete";
-      delBtn.textContent = "×";
-      delBtn.setAttribute("aria-label", "删除此会话");
-      delBtn.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        confirmDeleteSession(s.id);
-      });
-      item.appendChild(delBtn);
+      // 长按/右键：弹出"重命名 / 删除"操作菜单
+      attachSidebarItemMenu(item, s);
 
       chatSidebarList.appendChild(item);
     });
   }
+
+  /** 给侧栏项绑定长按/右键菜单（重命名、删除） */
+  function attachSidebarItemMenu(item, session) {
+    var longPressTimer = null;
+    var startX = 0;
+    var startY = 0;
+    function cancelLP() {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    }
+    function startLP(e) {
+      startX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
+      startY = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
+      cancelLP();
+      longPressTimer = setTimeout(function () {
+        if (navigator.vibrate) navigator.vibrate(15);
+        showSidebarItemMenu(item, session, startX, startY);
+      }, 500);
+    }
+    item.addEventListener("touchstart", startLP, { passive: true });
+    item.addEventListener("touchend", cancelLP);
+    item.addEventListener("touchmove", function (e) {
+      if (!longPressTimer) return;
+      var cx = e.touches && e.touches[0] ? e.touches[0].clientX : startX;
+      var cy = e.touches && e.touches[0] ? e.touches[0].clientY : startY;
+      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) cancelLP();
+    }, { passive: true });
+    item.addEventListener("mousedown", startLP);
+    item.addEventListener("mouseup", cancelLP);
+    item.addEventListener("mouseleave", cancelLP);
+    item.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      showSidebarItemMenu(item, session, startX, startY);
+    });
+  }
+
+  /** 显示侧栏项操作菜单（重命名 / 删除） */
+  var currentSidebarMenu = null;
+  function showSidebarItemMenu(item, session, x, y) {
+    hideSidebarItemMenu();
+
+    var menu = document.createElement("div");
+    menu.className = "msg-action-menu";
+    menu.dataset.sessionId = session.id;
+
+    var items = [
+      { icon: "✏️", label: "重命名", action: function () {
+        var newName = prompt("重命名会话", session.title || "新话题");
+        if (newName === null) return; // 用户取消
+        newName = newName.trim();
+        if (!newName) return;
+        session.title = newName;
+        saveSessions();
+        renderSidebarList();
+      }},
+      { icon: "🗑", label: "删除", action: function () { confirmDeleteSession(session.id); }},
+    ];
+
+    for (var i = 0; i < items.length; i++) {
+      if (i > 0) {
+        var div = document.createElement("div");
+        div.className = "msg-action-menu-divider";
+        menu.appendChild(div);
+      }
+      var it = document.createElement("div");
+      it.className = "msg-action-menu-item";
+      it.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
+      (function (action) {
+        it.addEventListener("click", function () { hideSidebarItemMenu(); action(); });
+      })(items[i].action);
+      menu.appendChild(it);
+    }
+
+    document.body.appendChild(menu);
+
+    // 定位：在 item 附近显示
+    var rect = item.getBoundingClientRect();
+    var menuRect = menu.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var margin = 12;
+
+    // 水平：以 item 右侧为基准，超出视口时显示在左侧
+    var menuLeft = rect.right - menuRect.width - 10;
+    if (menuLeft < margin) menuLeft = rect.left + 10;
+    menuLeft = Math.max(margin, Math.min(menuLeft, vw - menuRect.width - margin));
+
+    // 垂直：以 item 顶部为基准
+    var menuTop = rect.top;
+    menuTop = Math.max(margin, Math.min(menuTop, vh - menuRect.height - margin));
+
+    menu.style.left = Math.round(menuLeft) + "px";
+    menu.style.top = Math.round(menuTop) + "px";
+
+    currentSidebarMenu = menu;
+  }
+
+  function hideSidebarItemMenu() {
+    if (currentSidebarMenu) {
+      currentSidebarMenu.remove();
+      currentSidebarMenu = null;
+    }
+  }
+
+  // 点击外部关闭侧栏菜单
+  document.addEventListener("click", function (e) {
+    if (currentSidebarMenu && !currentSidebarMenu.contains(e.target)) hideSidebarItemMenu();
+  }, true);
+  document.addEventListener("touchstart", function (e) {
+    if (currentSidebarMenu && !currentSidebarMenu.contains(e.target)) hideSidebarItemMenu();
+  }, true);
 
   /* ================================================================
    * 初始化
