@@ -1828,6 +1828,74 @@
       }
     }
 
+    // "重新回答" 回调（整个 sendMessage 闭包共享）：
+    // 删除本条 AI 消息及其之后所有 assistant 消息，重新发起请求
+    var retry = function () {
+      var session = currentSession();
+      if (!session) return;
+      var msgs = session.messages;
+
+      // 找到最后一条用户消息的下标
+      var lastUserIdx = -1;
+      for (var k = msgs.length - 1; k >= 0; k--) {
+        if (msgs[k].role === "user") { lastUserIdx = k; break; }
+      }
+      if (lastUserIdx < 0) return;
+
+      // 截掉最后一条用户消息之后的所有 assistant 消息（含自动续答产生的多条）
+      session.messages = msgs.slice(0, lastUserIdx + 1);
+
+      // 同时删除 DOM 中这些 assistant 消息（从最后一条 user 消息之后的所有 .message.ai）
+      var lastUserMsgDiv = null;
+      var allMsgs = chatMessages.querySelectorAll(".message");
+      for (var m = allMsgs.length - 1; m >= 0; m--) {
+        if (allMsgs[m].classList.contains("user")) { lastUserMsgDiv = allMsgs[m]; break; }
+      }
+      // 删除 lastUserMsgDiv 之后的所有 AI 消息 DOM
+      if (lastUserMsgDiv) {
+        var next = lastUserMsgDiv.nextSibling;
+        while (next) {
+          var toRemove = next;
+          next = next.nextSibling;
+          if (toRemove.nodeType === 1 && toRemove.classList && toRemove.classList.contains("ai")) {
+            toRemove.remove();
+          } else if (toRemove.nodeType === 3 && !toRemove.textContent.trim()) {
+            toRemove.remove();
+          }
+        }
+      } else {
+        if (aiMsgDiv && aiMsgDiv.parentNode) aiMsgDiv.remove();
+      }
+
+      // 创建新的 AI 消息气泡
+      var newAiMsgDiv = document.createElement("div");
+      newAiMsgDiv.className = "message ai";
+      newAiMsgDiv.innerHTML =
+        '<div class="msg-bubble">正在思考' +
+        '<div class="typing-indicator">' +
+        '<div class="typing-dot"></div>' +
+        '<div class="typing-dot"></div>' +
+        '<div class="typing-dot"></div>' +
+        "</div></div>";
+      chatMessages.appendChild(newAiMsgDiv);
+      var newBubble = newAiMsgDiv.querySelector(".msg-bubble");
+
+      // 重置流式状态，并把 bubble/aiMsgDiv 指向新节点
+      fullContent = "";
+      pendingText = "";
+      incompleteFormulaTail = "";
+      finishReason = null;
+      lastAppendTs = 0;
+      firstTokenTs = 0;
+      bubble = newBubble;
+      aiMsgDiv = newAiMsgDiv;
+      hasClearedPlaceholder = false;
+
+      // 重新发起请求（支持自动续答）
+      runAutoContinueLoop();
+      scrollToBottom(true);
+    };
+
     // 流式结束后：一次性渲染完整 markdown/latex，绑定菜单
     // 带兜底逻辑：如果 renderContent 因任何原因返回空或抛错，回退到显示纯文本
     // 注意：流结束后不自动滚动到底部，由用户自行操作
@@ -1846,82 +1914,9 @@
         bubble.innerHTML = rendered;
       }
 
-      // "重新回答" 回调：删除本条 AI 消息及其之后所有 assistant 消息，重新请求
-      var onRetry = function () {
-        var session = currentSession();
-        if (!session) return;
-        var msgs = session.messages;
-
-        // 找到最后一条用户消息的下标
-        var lastUserIdx = -1;
-        for (var k = msgs.length - 1; k >= 0; k--) {
-          if (msgs[k].role === "user") { lastUserIdx = k; break; }
-        }
-        if (lastUserIdx < 0) return;
-
-        // 截掉最后一条用户消息之后的所有 assistant 消息（含自动续答产生的多条）
-        session.messages = msgs.slice(0, lastUserIdx + 1);
-
-        // 同时删除 DOM 中这些 assistant 消息（从最后一条 user 消息之后的所有 .message.ai）
-        // 找到最后一条 user 消息在 DOM 中的位置
-        var lastUserMsgDiv = null;
-        var allMsgs = chatMessages.querySelectorAll(".message");
-        for (var m = allMsgs.length - 1; m >= 0; m--) {
-          if (allMsgs[m].classList.contains("user")) { lastUserMsgDiv = allMsgs[m]; break; }
-        }
-        // 删除 lastUserMsgDiv 之后的所有 AI 消息 DOM
-        if (lastUserMsgDiv) {
-          var next = lastUserMsgDiv.nextSibling;
-          while (next) {
-            var toRemove = next;
-            next = next.nextSibling;
-            if (toRemove.nodeType === 1 && toRemove.classList && toRemove.classList.contains("ai")) {
-              toRemove.remove();
-            } else if (toRemove.nodeType === 1 && toRemove.classList && toRemove.classList.contains("message") && toRemove.classList.contains("ai")) {
-              toRemove.remove();
-            } else if (toRemove.nodeType === 3 && !toRemove.textContent.trim()) {
-              toRemove.remove(); // 清理空文本节点
-            }
-          }
-        } else {
-          // 兜底：若没找到 user DOM 节点，直接删掉本条 aiMsgDiv
-          aiMsgDiv.remove();
-        }
-
-        // 创建新的 AI 消息气泡
-        var newAiMsgDiv = document.createElement("div");
-        newAiMsgDiv.className = "message ai";
-        newAiMsgDiv.innerHTML =
-          '<div class="msg-bubble">正在思考' +
-          '<div class="typing-indicator">' +
-          '<div class="typing-dot"></div>' +
-          '<div class="typing-dot"></div>' +
-          '<div class="typing-dot"></div>' +
-          "</div></div>";
-        chatMessages.appendChild(newAiMsgDiv);
-        var newBubble = newAiMsgDiv.querySelector(".msg-bubble");
-
-        // 重置流式状态，并把 bubble/aiMsgDiv 指向新节点
-        fullContent = "";
-        pendingText = "";
-        incompleteFormulaTail = "";
-        finishReason = null;
-        lastAppendTs = 0;
-        firstTokenTs = 0;
-        bubble = newBubble;
-        aiMsgDiv = newAiMsgDiv;
-        hasClearedPlaceholder = false;
-
-        // 重新发起请求（支持自动续答）
-        runAutoContinueLoop();
-
-        scrollToBottom(true);
-      };
-
-      appendActions(bubble, aiMsgDiv, textForBubble, onRetry);
-      if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach, onRetry);
+      appendActions(bubble, aiMsgDiv, textForBubble, retry);
+      if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach, retry);
       autoScaleKatex(bubble);
-      // 流结束后不滚动到底部，由用户自行操作
     }
 
     // ===== 核心：自动续答循环（可被重试按钮重复调用）=====
@@ -2123,6 +2118,9 @@
     if (hadError) {
       if (!accumulatedContent.trim()) {
         bubble.innerHTML = renderContent("❌ 出错了：" + errorMessage);
+        // 即使出错也提供"重新回答"按钮
+        appendActions(bubble, aiMsgDiv, "", retry);
+        attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
       } else {
         // 已有部分内容，把错误信息以暗色小字追加末尾
         accumulatedContent += "\n\n*（出错：" + errorMessage + "）*";
@@ -2130,12 +2128,10 @@
         aiMsgDiv.dataset.msgId = aiMsgErr.id;
         finalRender(accumulatedContent, aiMsgErr);
       }
-      appendActions(bubble, aiMsgDiv, accumulatedContent || "");
-      attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: accumulatedContent || "" });
     } else if (!anyResponseReceived && !userAborted) {
       bubble.innerHTML = renderContent("❌ 未收到有效响应");
-      appendActions(bubble, aiMsgDiv, "");
-      attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" });
+      appendActions(bubble, aiMsgDiv, "", retry);
+      attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
     } else if (userAborted && accumulatedContent.trim()) {
       var aiMsgAborted = addMessageData("assistant", accumulatedContent);
       aiMsgDiv.dataset.msgId = aiMsgAborted.id;
