@@ -1823,24 +1823,30 @@
       }
     }
 
-    // 流式结束后：一次性渲染完整 markdown/latex，绑定菜单
-    // 带兜底逻辑：如果 renderContent 因任何原因返回空或抛错，回退到显示纯文本
-    // 注意：流结束后不自动滚动到底部，由用户自行操作
+    // 流式结束后：增量补全——只处理之前 held 住的公式尾部，不整体替换已显示内容
+    // 策略：bubble 中所有 .math-fallback 元素替换为 KaTeX 渲染结果
+    // 如果没有 fallback 或公式已完成，则 bubble 已是正确状态，无需操作
     function finalRender(textForBubble, msgObjToAttach) {
-      flushStreamAppend(true);
-      var rendered = "";
-      try {
-        rendered = renderContent(textForBubble);
-      } catch (e) {
-        rendered = "";
+      flushStreamAppend(true); // 先确保所有普通文本已追加
+
+      // 找出所有 fallback 公式占位，逐一用 KaTeX 渲染替换
+      var fallbacks = bubble.querySelectorAll(".math-fallback");
+      if (fallbacks.length > 0) {
+        // 更可靠的方式：直接对 textForBubble 做完整 renderContent
+        var rendered;
+        try {
+          rendered = renderContent(textForBubble);
+        } catch (e) {
+          rendered = "";
+        }
+        // 只有当 renderContent 产生了有效结果时才替换，避免回退到纯文本导致闪烁
+        if (rendered && rendered.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length >=
+            textForBubble.replace(/\s+/g, "").length * 0.5) {
+          bubble.innerHTML = rendered;
+        }
       }
-      // renderContent 返回空或比原文明显短时，回退为纯文本
-      if (!rendered || rendered.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length <
-          textForBubble.replace(/\s+/g, "").length * 0.5) {
-        bubble.innerHTML = escapeHtml(textForBubble).replace(/\n/g, "<br>");
-      } else {
-        bubble.innerHTML = rendered;
-      }
+      // 如果没有 fallback，说明所有公式在流式期间已完整渲染，无需任何操作
+
       appendActions(bubble, aiMsgDiv, textForBubble);
       if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
       autoScaleKatex(bubble);
