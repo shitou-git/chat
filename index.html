@@ -625,6 +625,9 @@
     cursor: pointer;
     transition: background 0.15s;
     position: relative;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
   .chat-sidebar-item:hover { background: var(--c-surface-2); }
   .chat-sidebar-item.active { background: var(--c-primary-soft); }
@@ -746,6 +749,83 @@
   }
   .chat-confirm-ok:hover { opacity: 0.9; }
 
+  /* ========== 重命名弹窗 ========== */
+  .chat-rename-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1400;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+  .chat-rename-overlay.show { display: flex; }
+  .chat-rename-modal {
+    background: var(--c-surface);
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 320px;
+    width: calc(100% - 40px);
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: modalIn 0.25s ease;
+  }
+  .chat-rename-title {
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--c-text);
+    margin-bottom: 16px;
+  }
+  .chat-rename-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border: 1.5px solid var(--c-border);
+    border-radius: 8px;
+    background: var(--c-bg);
+    color: var(--c-text);
+    font-size: 0.95rem;
+    font-family: inherit;
+    outline: none;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+  }
+  .chat-rename-input:focus {
+    border-color: var(--c-primary);
+  }
+  .chat-rename-btns {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+  }
+  .chat-rename-cancel {
+    padding: 10px 24px;
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    background: var(--c-surface);
+    color: var(--c-muted);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: inherit;
+  }
+  .chat-rename-cancel:hover { background: var(--c-surface-2); }
+  .chat-rename-ok {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    background: var(--btn-grad);
+    color: #fff;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    font-family: inherit;
+  }
+  .chat-rename-ok:hover { opacity: 0.9; }
+
   /* ========== 移动端适配 ========== */
   @media (max-width: 600px) {
     .chat-header { padding: 5px 12px; }
@@ -828,6 +908,17 @@
     <div class="chat-confirm-btns">
       <button type="button" class="chat-confirm-cancel" id="chatConfirmCancel">取消</button>
       <button type="button" class="chat-confirm-ok" id="chatConfirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="chat-rename-overlay" id="chatRenameOverlay" role="dialog" aria-modal="true" aria-labelledby="chatRenameTitle">
+  <div class="chat-rename-modal">
+    <div class="chat-rename-title" id="chatRenameTitle">重命名会话</div>
+    <input type="text" class="chat-rename-input" id="chatRenameInput" placeholder="输入会话名称" maxlength="50" />
+    <div class="chat-rename-btns">
+      <button type="button" class="chat-rename-cancel" id="chatRenameCancel">取消</button>
+      <button type="button" class="chat-rename-ok" id="chatRenameOk">确认</button>
     </div>
   </div>
 </div>
@@ -2432,15 +2523,7 @@
     menu.dataset.sessionId = session.id;
 
     var items = [
-      { icon: "✏️", label: "重命名", action: function () {
-        var newName = prompt("重命名会话", session.title || "新话题");
-        if (newName === null) return; // 用户取消
-        newName = newName.trim();
-        if (!newName) return;
-        session.title = newName;
-        saveSessions();
-        renderSidebarList();
-      }},
+      { icon: "✏️", label: "重命名", action: function () { showRenameModal(session.id, session.title || "新话题"); }},
       { icon: "🗑", label: "删除", action: function () { confirmDeleteSession(session.id); }},
     ];
 
@@ -2502,6 +2585,36 @@
    * 初始化
    * ================================================================ */
 
+  /** 重命名弹窗待处理会话 ID */
+  var pendingRenameSessionId = null;
+
+  /** 显示重命名弹窗 */
+  function showRenameModal(sessionId, currentName) {
+    pendingRenameSessionId = sessionId;
+    chatRenameInput.value = currentName || "";
+    chatRenameOverlay.classList.add("show");
+    setTimeout(function () { chatRenameInput.focus(); chatRenameInput.select(); }, 50);
+  }
+
+  /** 隐藏重命名弹窗 */
+  function hideRenameModal() {
+    chatRenameOverlay.classList.remove("show");
+    pendingRenameSessionId = null;
+  }
+
+  /** 确认重命名 */
+  function onRenameOk() {
+    var newName = chatRenameInput.value.trim();
+    if (!newName || !pendingRenameSessionId) { hideRenameModal(); return; }
+    var s = sessions.find(function (x) { return x.id === pendingRenameSessionId; });
+    if (s) {
+      s.title = newName;
+      saveSessions();
+      renderSidebarList();
+    }
+    hideRenameModal();
+  }
+
   function setupChat() {
     // 获取 DOM
     chatMessages = document.getElementById("chatMessages");
@@ -2514,6 +2627,10 @@
     chatConfirmOk = document.getElementById("chatConfirmOk");
     chatConfirmTitle = document.getElementById("chatConfirmTitle");
     chatConfirmWarn = document.getElementById("chatConfirmWarn");
+    chatRenameOverlay = document.getElementById("chatRenameOverlay");
+    chatRenameInput = document.getElementById("chatRenameInput");
+    chatRenameCancel = document.getElementById("chatRenameCancel");
+    chatRenameOk = document.getElementById("chatRenameOk");
     chatSidebar = document.getElementById("chatSidebar");
     chatSidebarOverlay = document.getElementById("chatSidebarOverlay");
     chatSidebarClose = document.getElementById("chatSidebarClose");
@@ -2600,11 +2717,23 @@
       if (e.target === chatConfirmOverlay) hideConfirm();
     });
 
+    // 重命名弹窗
+    chatRenameCancel.addEventListener("click", hideRenameModal);
+    chatRenameOk.addEventListener("click", onRenameOk);
+    chatRenameInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); onRenameOk(); }
+    });
+    chatRenameOverlay.addEventListener("click", function (e) {
+      if (e.target === chatRenameOverlay) hideRenameModal();
+    });
+
     // Esc 关闭弹窗 + 焦点陷阱
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
         if (currentActionMenu) {
           hideMsgActionMenu();
+        } else if (chatRenameOverlay.classList.contains("show")) {
+          hideRenameModal();
         } else if (chatConfirmOverlay.classList.contains("show")) {
           hideConfirm();
         } else if (chatSidebar.classList.contains("open")) {
