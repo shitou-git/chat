@@ -1182,18 +1182,15 @@
   /** 持久化所有会话 */
   function saveSessions() {
     try {
-      // 保存前对每个会话的消息做去重，防止渲染层遗漏导致重复数据固化到 localStorage
+      // 保存前对每个会话的消息做去重（按 msg.id 去重，避免误删合法的相同文本消息）
       sessions.forEach(function (s) {
         if (!s || !s.messages) return;
+        var seen = {};
         var deduped = [];
-        var prevRole = null;
-        var prevContent = null;
         s.messages.forEach(function (m) {
           if (!m || !m.content) return;
-          // 连续相同 role 且相同 content → 跳过
-          if (m.role === prevRole && m.content === prevContent) return;
-          prevRole = m.role;
-          prevContent = m.content;
+          if (m.id != null && seen[m.id]) return;
+          if (m.id != null) seen[m.id] = true;
           deduped.push(m);
         });
         s.messages = deduped;
@@ -1235,15 +1232,12 @@
     }
     chatMessages.innerHTML = "";
 
-    // 去重：跳过连续相同 role+content 的重复消息（防止 localStorage 异常时产生重复渲染）
-    var prevRole = null;
-    var prevContent = null;
+    // 按 msg.id 去重（避免误删合法的相同文本消息）
+    var seenIds = {};
     s.messages.forEach(function (m) {
       if (!m.content || !m.content.trim()) return;
-      // 连续相同 role 且相同 content → 跳过（重复消息）
-      if (m.role === prevRole && m.content === prevContent) return;
-      prevRole = m.role;
-      prevContent = m.content;
+      if (m.id != null && seenIds[m.id]) return;
+      if (m.id != null) seenIds[m.id] = true;
       var el = createMessageElement(m);
       chatMessages.appendChild(el);
     });
@@ -1313,25 +1307,25 @@
       .replace(/°/g, "^\\circ ")
       .replace(/±/g, "\\pm ")
       .replace(/∓/g, "\\mp ")
-      // 希腊字母（仅在非 \ 开头时替换，避免重复处理 \alpha 等）
-      .replace(/(^|[^\\])π/g, "$1\\pi ")
-      .replace(/(^|[^\\])α/g, "$1\\alpha ")
-      .replace(/(^|[^\\])β/g, "$1\\beta ")
-      .replace(/(^|[^\\])γ/g, "$1\\gamma ")
-      .replace(/(^|[^\\])δ/g, "$1\\delta ")
-      .replace(/(^|[^\\])ε/g, "$1\\varepsilon ")
-      .replace(/(^|[^\\])θ/g, "$1\\theta ")
-      .replace(/(^|[^\\])λ/g, "$1\\lambda ")
-      .replace(/(^|[^\\])μ/g, "$1\\mu ")
-      .replace(/(^|[^\\])ρ/g, "$1\\rho ")
-      .replace(/(^|[^\\])σ/g, "$1\\sigma ")
-      .replace(/(^|[^\\])τ/g, "$1\\tau ")
-      .replace(/(^|[^\\])φ/g, "$1\\varphi ")
-      .replace(/(^|[^\\])ψ/g, "$1\\psi ")
-      .replace(/(^|[^\\])ω/g, "$1\\omega ")
-      .replace(/(^|[^\\])Δ/g, "$1\\Delta ")
-      .replace(/(^|[^\\])Σ/g, "$1\\Sigma ")
-      .replace(/(^|[^\\])Ω/g, "$1\\Omega ");
+      // 希腊字母（用零宽负向后行，避免误伤已有 \alpha 的写法）
+      .replace(/(?<!\\)π/g, "\\pi ")
+      .replace(/(?<!\\)α/g, "\\alpha ")
+      .replace(/(?<!\\)β/g, "\\beta ")
+      .replace(/(?<!\\)γ/g, "\\gamma ")
+      .replace(/(?<!\\)δ/g, "\\delta ")
+      .replace(/(?<!\\)ε/g, "\\varepsilon ")
+      .replace(/(?<!\\)θ/g, "\\theta ")
+      .replace(/(?<!\\)λ/g, "\\lambda ")
+      .replace(/(?<!\\)μ/g, "\\mu ")
+      .replace(/(?<!\\)ρ/g, "\\rho ")
+      .replace(/(?<!\\)σ/g, "\\sigma ")
+      .replace(/(?<!\\)τ/g, "\\tau ")
+      .replace(/(?<!\\)φ/g, "\\varphi ")
+      .replace(/(?<!\\)ψ/g, "\\psi ")
+      .replace(/(?<!\\)ω/g, "\\omega ")
+      .replace(/(?<!\\)Δ/g, "\\Delta ")
+      .replace(/(?<!\\)Σ/g, "\\Sigma ")
+      .replace(/(?<!\\)Ω/g, "\\Omega ");
   }
 
   /**
@@ -1438,26 +1432,25 @@
       return "\x01INLINE" + idx + "\x01";
     });
 
-    // 标题
-    html = html.replace(/^#{1,6}\s+(.+)$/gm, function (m, content) {
-      var level = m.match(/^#+/)[0].length;
-      return "</p><h" + level + ">" + content + "</h" + level + "><p>";
-    });
-
-    // 加粗
-    html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-
-    // 单星号不转斜体（AI 常用 * 做乘法/列表，转斜体误伤太多）
-    // 保留原样
-
-    // 无序列表
-    html = html.replace(/^[-*]\s+/gm, "• ");
-
-    // 有序列表
-    html = html.replace(/^(\d+\.)\s+/gm, "$1 ");
-
-    // 换行
-    html = html.replace(/\n/g, "<br>");
+    // 逐行处理：标题行用 <hN>，其他行用 <br> 分隔，避免孤立的 </p>
+    var lines = html.split(/\r?\n/);
+    var headingRegex = /^(#{1,6})\s+(.+)$/;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var hm = line.match(headingRegex);
+      if (hm) {
+        var level = hm[1].length;
+        lines[i] = "<h" + level + ">" + hm[2] + "</h" + level + ">";
+      } else {
+        // 普通行：加粗 / 列表符号 / 有序列表 / 行内代码占位保留
+        var line2 = line;
+        line2 = line2.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        line2 = line2.replace(/^[-*]\s+/, "• ");
+        line2 = line2.replace(/^(\d+\.)\s+/, "$1 ");
+        lines[i] = line2;
+      }
+    }
+    html = lines.join("<br>");
 
     // 还原行内代码
     html = html.replace(/\x01INLINE(\d+)\x01/g, function (m, idx) {
@@ -1494,15 +1487,17 @@
 
   function scrollToBottom(force) {
     if (!chatMessages) return;
-    // 内容尚未溢出：无需滚动，避免无意义的 scrollTop 写入
     if (!force && chatMessages.scrollHeight <= chatMessages.clientHeight + 2) return;
+
+    // 已有待处理的 rAF：强制模式下覆盖，非强制模式等待已存在的 rAF 自然执行
     if (scrollRafId) {
       if (!force) return;
       cancelAnimationFrame(scrollRafId);
     }
+
     scrollRafId = requestAnimationFrame(function () {
       if (!chatMessages) return;
-      // 若距底已经 < 4px，视为用户在看最新内容，保持即可，不强制写
+      // 若距底已经 < 4px，非强制模式不滚动，不打扰用户阅读
       var distanceFromBottom =
         chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight;
       if (!force && distanceFromBottom < 4) {
@@ -1528,68 +1523,119 @@
   }
 
   /* ================================================================
+   * 通用长按 + 菜单构建
+   * ================================================================ */
+
+  /**
+   * 给目标元素绑定长按/右键触发。onTrigger(x, y) 在长按或右键时被调用。
+   * opts.beforeStart(target) — 可选，开始前检查，返回 false 则取消触发。
+   */
+  function attachLongPress(target, onTrigger, opts) {
+    if (!target || !onTrigger) return;
+    var longPressTimer = null;
+    var startX = 0;
+    var startY = 0;
+
+    function getX(e) {
+      if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
+      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
+      return e.clientX || 0;
+    }
+    function getY(e) {
+      if (e.touches && e.touches.length > 0) return e.touches[0].clientY;
+      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
+      return e.clientY || 0;
+    }
+    function cancel() {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    }
+    function start(e) {
+      if (opts && opts.beforeStart && opts.beforeStart(target) === false) return;
+      startX = getX(e);
+      startY = getY(e);
+      cancel();
+      longPressTimer = setTimeout(function () {
+        if (navigator.vibrate) navigator.vibrate(15);
+        onTrigger(startX, startY);
+      }, 500);
+    }
+    function handleMove(e) {
+      if (!longPressTimer) return;
+      var cx = getX(e);
+      var cy = getY(e);
+      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) cancel();
+    }
+
+    target.addEventListener("touchstart", start, { passive: true });
+    target.addEventListener("touchend", cancel);
+    target.addEventListener("touchmove", handleMove, { passive: true });
+    target.addEventListener("touchcancel", cancel);
+    target.addEventListener("mousedown", start);
+    target.addEventListener("mouseup", cancel);
+    target.addEventListener("mouseleave", cancel);
+    target.addEventListener("contextmenu", function (e) {
+      if (opts && opts.beforeStart && opts.beforeStart(target) === false) return;
+      e.preventDefault();
+      onTrigger(startX || e.clientX, startY || e.clientY);
+    });
+  }
+
+  /**
+   * 构建并定位操作菜单。items: [{icon, label, action}]。
+   * positionFn(menuRect, vw, vh) 返回 {left, top}。
+   * hideFn — 可选，点击菜单项前调用（用于清除当前菜单）。
+   */
+  function buildActionMenu(items, positionFn, hideFn) {
+    var menu = document.createElement("div");
+    menu.className = "msg-action-menu";
+
+    for (var i = 0; i < items.length; i++) {
+      if (i > 0) {
+        var divider = document.createElement("div");
+        divider.className = "msg-action-menu-divider";
+        menu.appendChild(divider);
+      }
+      var itemEl = document.createElement("div");
+      itemEl.className = "msg-action-menu-item";
+      itemEl.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
+      (function (action) {
+        itemEl.addEventListener("click", function () {
+          if (hideFn) hideFn();
+          if (action) action();
+        });
+      })(items[i].action);
+      menu.appendChild(itemEl);
+    }
+
+    document.body.appendChild(menu);
+
+    var menuRect = menu.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var pos = positionFn(menuRect, vw, vh);
+
+    var margin = 12;
+    var left = Math.max(margin, Math.min(pos.left, vw - menuRect.width - margin));
+    var top = Math.max(margin, Math.min(pos.top, vh - menuRect.height - margin));
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(top) + "px";
+
+    return menu;
+  }
+
+  /* ================================================================
    * DOM 渲染
    * ================================================================ */
 
   /** 给气泡绑定长按/右键操作菜单（onRetry 可选：AI 消息的重新回答） */
   function attachLongPressToBubble(bubble, msgDiv, msg, onRetry) {
-    var longPressTimer = null;
-    var startX = 0;
-    var startY = 0;
-
-    function getClientX(e) {
-      if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
-      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
-      return e.clientX || 0;
-    }
-    function getClientY(e) {
-      if (e.touches && e.touches.length > 0) return e.touches[0].clientY;
-      if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
-      return e.clientY || 0;
-    }
-
-    function inTextSelectMode() {
-      return bubble.classList.contains('is-text-select-mode');
-    }
-
-    function startLongPress(e) {
-      if (inTextSelectMode()) return;
-      startX = getClientX(e);
-      startY = getClientY(e);
-      longPressTimer = setTimeout(function () {
-        if (navigator.vibrate) navigator.vibrate(15);
-        showMsgActionMenu(msgDiv, bubble, msg, startX, startY, onRetry);
-      }, 500);
-    }
-
-    function cancelLongPress() {
-      if (longPressTimer) {
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
+    attachLongPress(bubble, function (x, y) {
+      showMsgActionMenu(msgDiv, bubble, msg, x, y, onRetry);
+    }, {
+      beforeStart: function (t) {
+        return !t.classList.contains('is-text-select-mode');
       }
-    }
-
-    function handleMove(e) {
-      if (!longPressTimer) return;
-      var cx = getClientX(e);
-      var cy = getClientY(e);
-      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) {
-        cancelLongPress();
-      }
-    }
-
-    bubble.addEventListener("touchstart", startLongPress, { passive: true });
-    bubble.addEventListener("touchend", cancelLongPress);
-    bubble.addEventListener("touchmove", handleMove, { passive: true });
-    bubble.addEventListener("touchcancel", cancelLongPress);
-    bubble.addEventListener("contextmenu", function (e) {
-      if (inTextSelectMode()) return;
-      e.preventDefault();
-      showMsgActionMenu(msgDiv, bubble, msg, startX, startY, onRetry);
     });
-    bubble.addEventListener("mousedown", startLongPress);
-    bubble.addEventListener("mouseup", cancelLongPress);
-    bubble.addEventListener("mouseleave", cancelLongPress);
   }
 
   function createMessageElement(msg) {
@@ -1659,66 +1705,31 @@
   function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY, onRetry) {
     hideMsgActionMenu();
 
-    var menu = document.createElement("div");
-    menu.className = "msg-action-menu";
-
-    // 菜单项
     var items = [
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
       { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
-    // 仅 AI 消息显示"重新回答"（放在删除下方）
     if (onRetry && msg.role === "assistant") {
       items.push({ icon: "🔄", label: "重新回答", action: onRetry });
     }
 
-    for (var i = 0; i < items.length; i++) {
-      if (i > 0) {
-        var divider = document.createElement("div");
-        divider.className = "msg-action-menu-divider";
-        menu.appendChild(divider);
+    currentActionMenu = buildActionMenu(items, function (menuRect, vw, vh) {
+      var fingerGap = 14;
+      var posX = clickX || vw / 2;
+      var posY = clickY || vh / 2;
+
+      var menuLeft = posX - menuRect.width / 2;
+
+      // 垂直：优先显示在手指上方；空间不足时翻到下方
+      var menuTop;
+      if (posY - fingerGap - menuRect.height >= 12) {
+        menuTop = posY - fingerGap - menuRect.height;
+      } else {
+        menuTop = posY + fingerGap;
       }
-      var itemEl = document.createElement("div");
-      itemEl.className = "msg-action-menu-item";
-      itemEl.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
-      (function (action) {
-        itemEl.addEventListener("click", function () {
-          hideMsgActionMenu();
-          action();
-        });
-      })(items[i].action);
-      menu.appendChild(itemEl);
-    }
-
-    document.body.appendChild(menu);
-
-    // 定位：以手指长按位置 (clickX/clickY) 为锚点，避开气泡边界
-    var menuRect = menu.getBoundingClientRect();
-    var vw = window.innerWidth;
-    var vh = window.innerHeight;
-    var margin = 12;
-    var fingerGap = 14; // 与手指保持间距，避免直接覆盖
-
-    // 水平：以 clickX 为中心，两侧不超出视口
-    var posX = (clickX || vw / 2);
-    var menuLeft = posX - menuRect.width / 2;
-    menuLeft = Math.max(margin, Math.min(menuLeft, vw - menuRect.width - margin));
-
-    // 垂直：优先显示在手指上方；上方空间不足时翻到下方
-    var posY = (clickY || vh / 2);
-    var menuTop;
-    if (posY - fingerGap - menuRect.height >= margin) {
-      menuTop = posY - fingerGap - menuRect.height;
-    } else {
-      menuTop = posY + fingerGap;
-    }
-    menuTop = Math.max(margin, Math.min(menuTop, vh - menuRect.height - margin));
-
-    menu.style.left = Math.round(menuLeft) + "px";
-    menu.style.top = Math.round(menuTop) + "px";
-
-    currentActionMenu = menu;
+      return { left: menuLeft, top: menuTop };
+    }, hideMsgActionMenu);
   }
 
   function copyMessageText(text) {
@@ -2093,7 +2104,6 @@
     // ===== 核心：自动续答循环（可被重试按钮重复调用）=====
     function runAutoContinueLoop() {
       return new Promise(async function (resolve) {
-
         var AUTO_CONTINUE_LIMIT = 2;
         var autoContinueLeft = AUTO_CONTINUE_LIMIT;
         var turnIndex = 0;
@@ -2103,232 +2113,204 @@
         var hadError = false;
         var errorMessage = "";
 
-    // 把用户最后一条消息保存起来，续答时作为上下文的一部分
-    // 注意：addMessageData 已在开头执行一次，chatData() 会返回包含这条用户消息的历史
+        do {
+          turnIndex++;
+          // 重置本轮的流式状态（累积文本不重置）
+          finishReason = null;
+          pendingText = "";
+          incompleteFormulaTail = "";
+          lastAppendTs = 0;
 
-    do {
-      turnIndex++;
-      // 重置本轮的流式状态（累积文本不重置）
-      finishReason = null;
-      pendingText = "";
-      incompleteFormulaTail = "";
-      lastAppendTs = 0;
+          // 构建本轮请求的上下文
+          var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
+          var msgs = chatData();
+          msgs.forEach(function (m) {
+            historyMessages.push({ role: m.role, content: m.content });
+          });
+          // 续答轮次：先把已累积的输出补到上下文尾部，再发"继续"
+          if (turnIndex > 1) {
+            if (accumulatedContent.trim()) {
+              historyMessages.push({ role: "assistant", content: accumulatedContent });
+            }
+            historyMessages.push({ role: "user", content: "继续" });
+            // 续答开始前清空 bubble 内残留文本（但保留结构），让后续内容追加显示
+            if (bubble) bubble.innerHTML = "";
+            hasClearedPlaceholder = true;
+          }
 
-      // 构建本轮请求的上下文
-      var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
-      var msgs = chatData();
-      msgs.forEach(function (m) {
-        historyMessages.push({ role: m.role, content: m.content });
-      });
-      // 续答轮次：附加一句"继续"，让模型从上一次截断处继续输出
-      if (turnIndex > 1) {
-        historyMessages.push({
-          role: "user",
-          content: "继续",
-        });
-        // 在 bubble 中显示一个轻量的续接提示，但不新建用户消息
-        if (!hasClearedPlaceholder) {
-          bubble.innerHTML = "";
-          hasClearedPlaceholder = true;
-        }
-      }
+          abortController = new AbortController();
 
-      abortController = new AbortController();
-
-      try {
-        // ===== 带重试的请求 =====
-        var response = null;
-        var retryCount = 0;
-
-        while (retryCount <= CONFIG.MAX_RETRIES) {
           try {
-            response = await doFetch(historyMessages);
-            if (response.ok) break;
+            // ===== 带重试的请求 =====
+            var response = null;
+            var retryCount = 0;
 
-            var errorText2 = await response.text();
-            if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
-              retryCount++;
-              await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
-              continue;
-            }
-            throw new Error("API 请求失败：" + response.status + " " + errorText2);
-          } catch (err) {
-            if (err.name === "AbortError") throw err;
-            if (retryCount < CONFIG.MAX_RETRIES) {
-              retryCount++;
-              await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
-              continue;
-            }
-            throw err;
-          }
-        }
-
-        // ===== 读取 SSE 流 =====
-        var reader = response.body.getReader();
-        var decoder = new TextDecoder("utf-8", { fatal: false });
-        var lineBuffer = "";
-
-        while (true) {
-          var result = await reader.read();
-          if (result.done) break;
-
-          lineBuffer += decoder.decode(result.value, { stream: true });
-          var lfIdx;
-          while ((lfIdx = lineBuffer.indexOf("\n")) !== -1) {
-            var rawLine = lineBuffer.substring(0, lfIdx);
-            lineBuffer = lineBuffer.substring(lfIdx + 1);
-            if (rawLine.charAt(rawLine.length - 1) === "\r") rawLine = rawLine.slice(0, -1);
-
-            if (rawLine === "") continue;
-            if (rawLine.charAt(0) === ":") continue;
-            if (!rawLine.startsWith("data:")) continue;
-
-            var payload = rawLine.substring(5);
-            if (payload.charAt(0) === " ") payload = payload.substring(1);
-            if (payload === "[DONE]") continue;
-
-            try {
-              var data = JSON.parse(payload);
-              if (data.choices && data.choices[0] && data.choices[0].finish_reason) {
-                finishReason = data.choices[0].finish_reason;
-              }
-              var delta =
-                data.choices &&
-                data.choices[0] &&
-                data.choices[0].delta &&
-                data.choices[0].delta.content;
-              if (!delta) continue;
-
-              if (fullContent.length === 0 && firstTokenTs === 0) firstTokenTs = Date.now();
-              fullContent += delta;
-              pendingText += delta;
-              flushStreamAppend(false);
-            } catch (e) {}
-          }
-        }
-
-        // decoder.final() 清尾部
-        try {
-          var decoderTail = decoder.decode();
-          if (decoderTail) lineBuffer += decoderTail;
-        } catch (e) {}
-
-        // lineBuffer 末尾一行
-        if (lineBuffer && lineBuffer.charAt(0) !== ":") {
-          if (lineBuffer.charAt(lineBuffer.length - 1) === "\r") lineBuffer = lineBuffer.slice(0, -1);
-          if (lineBuffer.startsWith("data:")) {
-            var lastPayload2 = lineBuffer.substring(5);
-            if (lastPayload2.charAt(0) === " ") lastPayload2 = lastPayload2.substring(1);
-            if (lastPayload2 !== "[DONE]") {
+            while (retryCount <= CONFIG.MAX_RETRIES) {
               try {
-                var lastData2 = JSON.parse(lastPayload2);
-                if (lastData2.choices && lastData2.choices[0] && lastData2.choices[0].finish_reason) {
-                  finishReason = lastData2.choices[0].finish_reason;
+                response = await doFetch(historyMessages);
+                if (response.ok) break;
+
+                var errorText2 = await response.text();
+                if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
+                  retryCount++;
+                  await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
+                  continue;
                 }
-                var lastDelta2 =
-                  lastData2.choices &&
-                  lastData2.choices[0] &&
-                  lastData2.choices[0].delta &&
-                  lastData2.choices[0].delta.content;
-                if (lastDelta2) {
-                  fullContent += lastDelta2;
-                  pendingText += lastDelta2;
+                throw new Error("API 请求失败：" + response.status + " " + errorText2);
+              } catch (err) {
+                if (err.name === "AbortError") throw err;
+                if (retryCount < CONFIG.MAX_RETRIES) {
+                  retryCount++;
+                  await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
+                  continue;
                 }
-              } catch (e) {}
+                throw err;
+              }
             }
-          }
-        }
 
-        // 本轮强制 flush
-        flushStreamAppend(true);
+            // ===== 读取 SSE 流 =====
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder("utf-8", { fatal: false });
+            var lineBuffer = "";
 
-        if (!fullContent.trim()) {
-          if (turnIndex === 1) throw new Error("未收到有效响应");
-          // 续答轮次无内容：视为正常结束
-        }
+            while (true) {
+              var result = await reader.read();
+              if (result.done) break;
 
-        // 合并到累积文本
-        accumulatedContent += fullContent;
-        anyResponseReceived = true;
+              lineBuffer += decoder.decode(result.value, { stream: true });
+              var lfIdx;
+              while ((lfIdx = lineBuffer.indexOf("\n")) !== -1) {
+                var rawLine = lineBuffer.substring(0, lfIdx);
+                lineBuffer = lineBuffer.substring(lfIdx + 1);
+                if (rawLine.charAt(rawLine.length - 1) === "\r") rawLine = rawLine.slice(0, -1);
 
-        // 把本轮 AI 回复加入 chatData，这样续答时上下文是完整的
-        if (fullContent.trim()) {
-          addMessageData("assistant", fullContent);
-        }
+                if (rawLine === "") continue;
+                if (rawLine.charAt(0) === ":") continue;
+                if (!rawLine.startsWith("data:")) continue;
 
-        // 重置 fullContent，准备下一轮
-        fullContent = "";
+                var payload = rawLine.substring(5);
+                if (payload.charAt(0) === " ") payload = payload.substring(1);
+                if (payload === "[DONE]") continue;
 
-      } catch (err) {
-        if (err.name === "AbortError") {
-          userAborted = true;
-          if (fullContent.trim()) {
+                try {
+                  var sseInfo = extractSSEData(payload);
+                  if (sseInfo.finishReason) finishReason = sseInfo.finishReason;
+                  if (sseInfo.content) {
+                    if (fullContent.length === 0 && firstTokenTs === 0) firstTokenTs = Date.now();
+                    fullContent += sseInfo.content;
+                    pendingText += sseInfo.content;
+                    flushStreamAppend(false);
+                  }
+                } catch (e) {}
+              }
+            }
+
+            // decoder.final() 清尾部
+            try {
+              var decoderTail = decoder.decode();
+              if (decoderTail) lineBuffer += decoderTail;
+            } catch (e) {}
+
+            // lineBuffer 末尾一行
+            if (lineBuffer && lineBuffer.charAt(0) !== ":") {
+              if (lineBuffer.charAt(lineBuffer.length - 1) === "\r") lineBuffer = lineBuffer.slice(0, -1);
+              if (lineBuffer.startsWith("data:")) {
+                var lastPayload2 = lineBuffer.substring(5);
+                if (lastPayload2.charAt(0) === " ") lastPayload2 = lastPayload2.substring(1);
+                if (lastPayload2 !== "[DONE]") {
+                  try {
+                    var tailSse = extractSSEData(lastPayload2);
+                    if (tailSse.finishReason) finishReason = tailSse.finishReason;
+                    if (tailSse.content) {
+                      fullContent += tailSse.content;
+                      pendingText += tailSse.content;
+                    }
+                  } catch (e) {}
+                }
+              }
+            }
+
+            // 本轮强制 flush
+            flushStreamAppend(true);
+
+            if (!fullContent.trim()) {
+              if (turnIndex === 1) throw new Error("未收到有效响应");
+            }
+
             accumulatedContent += fullContent;
             anyResponseReceived = true;
-            addMessageData("assistant", fullContent);
+
+            // 重置 fullContent，准备下一轮
             fullContent = "";
+
+          } catch (err) {
+            if (err.name === "AbortError") {
+              userAborted = true;
+              if (fullContent.trim()) {
+                accumulatedContent += fullContent;
+                anyResponseReceived = true;
+                fullContent = "";
+              }
+            } else {
+              hadError = true;
+              errorMessage = err.message;
+              console.error(err);
+            }
+            break; // 任意错误都停止续答
           }
-        } else {
-          hadError = true;
-          errorMessage = err.message;
-          console.error(err);
+
+          // 判断是否需要续答
+          if (finishReason === "length" && autoContinueLeft > 0) {
+            autoContinueLeft--;
+            await delay(200);
+            continue;
+          }
+          break;
+
+        } while (true);
+
+        // ===== 最终渲染与保存 =====
+        if (hadError) {
+          if (!accumulatedContent.trim()) {
+            bubble.innerHTML = renderContent("❌ 出错了：" + errorMessage);
+            appendActions(bubble, aiMsgDiv, "", retry);
+            attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
+          } else {
+            accumulatedContent += "\n\n*（出错：" + errorMessage + "）*";
+            var aiMsgErr = addMessageData("assistant", accumulatedContent);
+            aiMsgDiv.dataset.msgId = aiMsgErr.id;
+            finalRender(accumulatedContent, aiMsgErr);
+          }
+        } else if (!anyResponseReceived && !userAborted) {
+          bubble.innerHTML = renderContent("❌ 未收到有效响应");
+          appendActions(bubble, aiMsgDiv, "", retry);
+          attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
+        } else if (userAborted && accumulatedContent.trim()) {
+          var aiMsgAborted = addMessageData("assistant", accumulatedContent);
+          aiMsgDiv.dataset.msgId = aiMsgAborted.id;
+          finalRender(accumulatedContent, aiMsgAborted);
+          saveChatHistory();
+        } else if (accumulatedContent.trim()) {
+          // 正常路径：最终渲染 + 保存（整条消息只存一次，避免续答产生重复）
+          var aiMsgFinal = addMessageData("assistant", accumulatedContent);
+          aiMsgDiv.dataset.msgId = aiMsgFinal.id;
+          finalRender(accumulatedContent, aiMsgFinal);
+
+          var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
+          console.log(
+            "[灵知-流式] 全文 " + accumulatedContent.length + " 字符" +
+            " | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
+            " | 总耗时: " + (Date.now() - t0) + "ms" +
+            (finishReason === "length" ? " | finish_reason=length（已触发自动续答）" : "")
+          );
+
+          saveChatHistory();
+        } else if (userAborted) {
+          aiMsgDiv.remove();
         }
-        break; // 任意错误都停止续答
-      }
 
-      // 判断是否需要续答
-      if (finishReason === "length" && autoContinueLeft > 0) {
-        autoContinueLeft--;
-        await delay(200);
-        continue;
-      }
-      break;
-
-    } while (true);
-    // ===== 最终渲染与保存 =====
-    if (hadError) {
-      if (!accumulatedContent.trim()) {
-        bubble.innerHTML = renderContent("❌ 出错了：" + errorMessage);
-        // 即使出错也提供"重新回答"按钮
-        appendActions(bubble, aiMsgDiv, "", retry);
-        attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
-      } else {
-        // 已有部分内容，把错误信息以暗色小字追加末尾
-        accumulatedContent += "\n\n*（出错：" + errorMessage + "）*";
-        var aiMsgErr = addMessageData("assistant", accumulatedContent);
-        aiMsgDiv.dataset.msgId = aiMsgErr.id;
-        finalRender(accumulatedContent, aiMsgErr);
-      }
-    } else if (!anyResponseReceived && !userAborted) {
-      bubble.innerHTML = renderContent("❌ 未收到有效响应");
-      appendActions(bubble, aiMsgDiv, "", retry);
-      attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" }, retry);
-    } else if (userAborted && accumulatedContent.trim()) {
-      var aiMsgAborted = addMessageData("assistant", accumulatedContent);
-      aiMsgDiv.dataset.msgId = aiMsgAborted.id;
-      finalRender(accumulatedContent, aiMsgAborted);
-      saveChatHistory();
-    } else if (accumulatedContent.trim()) {
-      // 正常路径：最终渲染 + 保存
-      var aiMsgFinal = addMessageData("assistant", accumulatedContent);
-      aiMsgDiv.dataset.msgId = aiMsgFinal.id;
-      finalRender(accumulatedContent, aiMsgFinal);
-
-      var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
-      console.log(
-        "[灵知-流式] 全文 " + accumulatedContent.length + " 字符" +
-        " | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
-        " | 总耗时: " + (Date.now() - t0) + "ms" +
-        (finishReason === "length" ? " | finish_reason=length（已触发自动续答）" : "")
-      );
-
-      saveChatHistory();
-    } else if (userAborted) {
-      aiMsgDiv.remove();
-    }
-
-    toggleSendButton(false);
-    abortController = null;
+        toggleSendButton(false);
+        abortController = null;
         resolve();
       });
     }
@@ -2339,6 +2321,19 @@
   /** 向 bubble 追加长按操作菜单绑定（onRetry 可选：AI 消息的重新回答） */
   function appendActions(bubble, msgDiv, content, onRetry) {
     attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content }, onRetry);
+  }
+
+  /** 从 SSE payload 文本中提取 finish_reason 和 delta.content，避免重复的 choices 解析代码 */
+  function extractSSEData(payload) {
+    var result = { finishReason: null, content: null };
+    try {
+      var data = JSON.parse(payload);
+      var choice = data.choices && data.choices[0];
+      if (!choice) return result;
+      if (choice.finish_reason) result.finishReason = choice.finish_reason;
+      if (choice.delta && choice.delta.content) result.content = choice.delta.content;
+    } catch (e) {}
+    return result;
   }
 
   /** 构造请求——密钥运行时解密，用后不驻留变量 */
@@ -2394,11 +2389,15 @@
     pendingDeleteSessionId = null;
   }
 
-  /** 焦点陷阱——Tab 在弹窗内循环 */
+  /** 焦点陷阱——Tab 在弹窗内循环（支持确认弹窗和重命名弹窗） */
   function trapFocus(e) {
-    if (!chatConfirmOverlay.classList.contains("show")) return;
     if (e.key !== "Tab") return;
-    var focusable = chatConfirmOverlay.querySelectorAll("button");
+    var activeOverlay = null;
+    if (chatConfirmOverlay.classList.contains("show")) activeOverlay = chatConfirmOverlay;
+    else if (chatRenameOverlay.classList.contains("show")) activeOverlay = chatRenameOverlay;
+    if (!activeOverlay) return;
+
+    var focusable = activeOverlay.querySelectorAll("button, input");
     if (!focusable.length) return;
     var first = focusable[0];
     var last = focusable[focusable.length - 1];
@@ -2537,35 +2536,8 @@
 
   /** 给侧栏项绑定长按/右键菜单（重命名、删除） */
   function attachSidebarItemMenu(item, session) {
-    var longPressTimer = null;
-    var startX = 0;
-    var startY = 0;
-    function cancelLP() {
-      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-    }
-    function startLP(e) {
-      startX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
-      startY = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
-      cancelLP();
-      longPressTimer = setTimeout(function () {
-        if (navigator.vibrate) navigator.vibrate(15);
-        showSidebarItemMenu(item, session, startX, startY);
-      }, 500);
-    }
-    item.addEventListener("touchstart", startLP, { passive: true });
-    item.addEventListener("touchend", cancelLP);
-    item.addEventListener("touchmove", function (e) {
-      if (!longPressTimer) return;
-      var cx = e.touches && e.touches[0] ? e.touches[0].clientX : startX;
-      var cy = e.touches && e.touches[0] ? e.touches[0].clientY : startY;
-      if (Math.abs(cx - startX) > 10 || Math.abs(cy - startY) > 10) cancelLP();
-    }, { passive: true });
-    item.addEventListener("mousedown", startLP);
-    item.addEventListener("mouseup", cancelLP);
-    item.addEventListener("mouseleave", cancelLP);
-    item.addEventListener("contextmenu", function (e) {
-      e.preventDefault();
-      showSidebarItemMenu(item, session, startX, startY);
+    attachLongPress(item, function (x, y) {
+      showSidebarItemMenu(item, session, x, y);
     });
   }
 
@@ -2574,52 +2546,18 @@
   function showSidebarItemMenu(item, session, x, y) {
     hideSidebarItemMenu();
 
-    var menu = document.createElement("div");
-    menu.className = "msg-action-menu";
-    menu.dataset.sessionId = session.id;
-
     var items = [
-      { icon: "✏️", label: "重命名", action: function () { showRenameModal(session.id, session.title || "新话题"); }},
-      { icon: "🗑", label: "删除", action: function () { confirmDeleteSession(session.id); }},
+      { icon: "✏️", label: "重命名", action: function () { showRenameModal(session.id, session.title || "新话题"); } },
+      { icon: "🗑", label: "删除", action: function () { confirmDeleteSession(session.id); } },
     ];
 
-    for (var i = 0; i < items.length; i++) {
-      if (i > 0) {
-        var div = document.createElement("div");
-        div.className = "msg-action-menu-divider";
-        menu.appendChild(div);
-      }
-      var it = document.createElement("div");
-      it.className = "msg-action-menu-item";
-      it.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
-      (function (action) {
-        it.addEventListener("click", function () { hideSidebarItemMenu(); action(); });
-      })(items[i].action);
-      menu.appendChild(it);
-    }
-
-    document.body.appendChild(menu);
-
-    // 定位：在 item 附近显示
-    var rect = item.getBoundingClientRect();
-    var menuRect = menu.getBoundingClientRect();
-    var vw = window.innerWidth;
-    var vh = window.innerHeight;
-    var margin = 12;
-
-    // 水平：以 item 右侧为基准，超出视口时显示在左侧
-    var menuLeft = rect.right - menuRect.width - 10;
-    if (menuLeft < margin) menuLeft = rect.left + 10;
-    menuLeft = Math.max(margin, Math.min(menuLeft, vw - menuRect.width - margin));
-
-    // 垂直：以 item 顶部为基准
-    var menuTop = rect.top;
-    menuTop = Math.max(margin, Math.min(menuTop, vh - menuRect.height - margin));
-
-    menu.style.left = Math.round(menuLeft) + "px";
-    menu.style.top = Math.round(menuTop) + "px";
-
-    currentSidebarMenu = menu;
+    currentSidebarMenu = buildActionMenu(items, function (menuRect, vw, vh) {
+      var rect = item.getBoundingClientRect();
+      var menuLeft = rect.right - menuRect.width - 10;
+      if (menuLeft < 12) menuLeft = rect.left + 10;
+      return { left: menuLeft, top: rect.top };
+    }, hideSidebarItemMenu);
+    currentSidebarMenu.dataset.sessionId = session.id;
   }
 
   function hideSidebarItemMenu() {
