@@ -1036,6 +1036,22 @@
   /** 持久化所有会话 */
   function saveSessions() {
     try {
+      // 保存前对每个会话的消息做去重，防止渲染层遗漏导致重复数据固化到 localStorage
+      sessions.forEach(function (s) {
+        if (!s || !s.messages) return;
+        var deduped = [];
+        var prevRole = null;
+        var prevContent = null;
+        s.messages.forEach(function (m) {
+          if (!m || !m.content) return;
+          // 连续相同 role 且相同 content → 跳过
+          if (m.role === prevRole && m.content === prevContent) return;
+          prevRole = m.role;
+          prevContent = m.content;
+          deduped.push(m);
+        });
+        s.messages = deduped;
+      });
       localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(sessions));
     } catch (e) {
       console.warn("saveSessions error:", e);
@@ -1072,8 +1088,16 @@
       return;
     }
     chatMessages.innerHTML = "";
+
+    // 去重：跳过连续相同 role+content 的重复消息（防止 localStorage 异常时产生重复渲染）
+    var prevRole = null;
+    var prevContent = null;
     s.messages.forEach(function (m) {
       if (!m.content || !m.content.trim()) return;
+      // 连续相同 role 且相同 content → 跳过（重复消息）
+      if (m.role === prevRole && m.content === prevContent) return;
+      prevRole = m.role;
+      prevContent = m.content;
       var el = createMessageElement(m);
       chatMessages.appendChild(el);
     });
