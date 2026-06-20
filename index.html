@@ -1694,6 +1694,7 @@
     var AUTO_SCROLL_LINE_LIMIT = 12;      // 前 N 行跟随滚动，之后停止
     var hasClearedPlaceholder = false;    // 是否已清掉"正在思考"
     var incompleteFormulaTail = "";       // 未配对的 $ 开头的片段，留到下次再处理
+    var finishReason = null;              // finish_reason，用于判断是否被 max_tokens 截断
 
     // 按换行粗略估算行数
     function estimateLineCount(text) {
@@ -1846,148 +1847,241 @@
       // 流结束后不滚动到底部，由用户自行操作
     }
 
-    try {
-      // ===== 带重试的请求 =====
-      var response = null;
-      var retryCount = 0;
+    // ===== 多轮请求：检测到 max_tokens 截断时自动续答，最多 AUTO_CONTINUE_LIMIT 次 =====
+    var AUTO_CONTINUE_LIMIT = 2;
+    var autoContinueLeft = AUTO_CONTINUE_LIMIT;
+    var turnIndex = 0;
+    var accumulatedContent = "";   // 所有轮次累积的完整文本（保存用）
+    var anyResponseReceived = false;
+    var userAborted = false;
+    var hadError = false;
+    var errorMessage = "";
 
-      while (retryCount <= CONFIG.MAX_RETRIES) {
-        try {
-          response = await doFetch(historyMessages);
-          if (response.ok) break;
+    // 把用户最后一条消息保存起来，续答时作为上下文的一部分
+    // 注意：addMessageData 已在开头执行一次，chatData() 会返回包含这条用户消息的历史
 
-          var errorText = await response.text();
-          if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
-            retryCount++;
-            await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
-            continue;
-          }
-          throw new Error("API 请求失败：" + response.status + " " + errorText);
-        } catch (err) {
-          if (err.name === "AbortError") throw err;
-          if (retryCount < CONFIG.MAX_RETRIES) {
-            retryCount++;
-            await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
-            continue;
-          }
-          throw err;
+    do {
+      turnIndex++;
+      // 重置本轮的流式状态（累积文本不重置）
+      finishReason = null;
+      pendingText = "";
+      incompleteFormulaTail = "";
+      lastAppendTs = 0;
+
+      // 构建本轮请求的上下文
+      var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
+      var msgs = chatData();
+      msgs.forEach(function (m) {
+        historyMessages.push({ role: m.role, content: m.content });
+      });
+      // 续答轮次：附加一句"继续"，让模型从上一次截断处继续输出
+      if (turnIndex > 1) {
+        historyMessages.push({
+          role: "user",
+          content: "继续",
+        });
+        // 在 bubble 中显示一个轻量的续接提示，但不新建用户消息
+        if (!hasClearedPlaceholder) {
+          bubble.innerHTML = "";
+          hasClearedPlaceholder = true;
         }
       }
 
-      // ===== 读取 SSE 流：按行逐行处理，避免 \n\n 事件分隔的边界问题 =====
-      // 兼容两种格式：1) 标准 SSE: data: {...}\n\n  2) 非标准：每行 data: {...} 无空行
-      var reader = response.body.getReader();
-      var decoder = new TextDecoder("utf-8", { fatal: false });
-      var lineBuffer = "";  // 累积未完成的一行
+      abortController = new AbortController();
 
-      while (true) {
-        var result = await reader.read();
-        if (result.done) break;
-
-        lineBuffer += decoder.decode(result.value, { stream: true });
-        // 按 \n 分割行；最后一段可能不完整，保留到 lineBuffer 中
-        var lfIdx;
-        while ((lfIdx = lineBuffer.indexOf("\n")) !== -1) {
-          var rawLine = lineBuffer.substring(0, lfIdx);
-          lineBuffer = lineBuffer.substring(lfIdx + 1);
-          // 去掉 \r（防止 \r\n 造成问题）
-          if (rawLine.charAt(rawLine.length - 1) === "\r") rawLine = rawLine.slice(0, -1);
-
-          // 跳过空行和心跳
-          if (rawLine === "") continue;
-          if (rawLine.charAt(0) === ":") continue;
-          if (!rawLine.startsWith("data:")) continue;
-
-          var payload = rawLine.substring(5);
-          if (payload.charAt(0) === " ") payload = payload.substring(1);
-          if (payload === "[DONE]") continue;
-
-          try {
-            var data = JSON.parse(payload);
-            var delta =
-              data.choices &&
-              data.choices[0] &&
-              data.choices[0].delta &&
-              data.choices[0].delta.content;
-            if (!delta) continue;
-
-            if (fullContent.length === 0) firstTokenTs = Date.now();
-            fullContent += delta;
-            pendingText += delta;
-            flushStreamAppend(false);
-          } catch (e) { /* 忽略解析错误 */ }
-        }
-      }
-
-      // decoder.final() 清 TextDecoder 内部多字节缓冲
       try {
-        var decoderTail = decoder.decode();
-        if (decoderTail) lineBuffer += decoderTail;
-      } catch (e) {}
+        // ===== 带重试的请求 =====
+        var response = null;
+        var retryCount = 0;
 
-      // lineBuffer 中如果还有最后一行 data: xxx 也尝试解析
-      if (lineBuffer && lineBuffer.charAt(0) !== ":") {
-        if (lineBuffer.charAt(lineBuffer.length - 1) === "\r") lineBuffer = lineBuffer.slice(0, -1);
-        if (lineBuffer.startsWith("data:")) {
-          var lastPayload = lineBuffer.substring(5);
-          if (lastPayload.charAt(0) === " ") lastPayload = lastPayload.substring(1);
-          if (lastPayload !== "[DONE]") {
+        while (retryCount <= CONFIG.MAX_RETRIES) {
+          try {
+            response = await doFetch(historyMessages);
+            if (response.ok) break;
+
+            var errorText2 = await response.text();
+            if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
+              retryCount++;
+              await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
+              continue;
+            }
+            throw new Error("API 请求失败：" + response.status + " " + errorText2);
+          } catch (err) {
+            if (err.name === "AbortError") throw err;
+            if (retryCount < CONFIG.MAX_RETRIES) {
+              retryCount++;
+              await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
+              continue;
+            }
+            throw err;
+          }
+        }
+
+        // ===== 读取 SSE 流 =====
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder("utf-8", { fatal: false });
+        var lineBuffer = "";
+
+        while (true) {
+          var result = await reader.read();
+          if (result.done) break;
+
+          lineBuffer += decoder.decode(result.value, { stream: true });
+          var lfIdx;
+          while ((lfIdx = lineBuffer.indexOf("\n")) !== -1) {
+            var rawLine = lineBuffer.substring(0, lfIdx);
+            lineBuffer = lineBuffer.substring(lfIdx + 1);
+            if (rawLine.charAt(rawLine.length - 1) === "\r") rawLine = rawLine.slice(0, -1);
+
+            if (rawLine === "") continue;
+            if (rawLine.charAt(0) === ":") continue;
+            if (!rawLine.startsWith("data:")) continue;
+
+            var payload = rawLine.substring(5);
+            if (payload.charAt(0) === " ") payload = payload.substring(1);
+            if (payload === "[DONE]") continue;
+
             try {
-              var lastData = JSON.parse(lastPayload);
-              var lastDelta =
-                lastData.choices &&
-                lastData.choices[0] &&
-                lastData.choices[0].delta &&
-                lastData.choices[0].delta.content;
-              if (lastDelta) {
-                fullContent += lastDelta;
-                pendingText += lastDelta;
+              var data = JSON.parse(payload);
+              if (data.choices && data.choices[0] && data.choices[0].finish_reason) {
+                finishReason = data.choices[0].finish_reason;
               }
+              var delta =
+                data.choices &&
+                data.choices[0] &&
+                data.choices[0].delta &&
+                data.choices[0].delta.content;
+              if (!delta) continue;
+
+              if (fullContent.length === 0 && firstTokenTs === 0) firstTokenTs = Date.now();
+              fullContent += delta;
+              pendingText += delta;
+              flushStreamAppend(false);
             } catch (e) {}
           }
         }
+
+        // decoder.final() 清尾部
+        try {
+          var decoderTail = decoder.decode();
+          if (decoderTail) lineBuffer += decoderTail;
+        } catch (e) {}
+
+        // lineBuffer 末尾一行
+        if (lineBuffer && lineBuffer.charAt(0) !== ":") {
+          if (lineBuffer.charAt(lineBuffer.length - 1) === "\r") lineBuffer = lineBuffer.slice(0, -1);
+          if (lineBuffer.startsWith("data:")) {
+            var lastPayload2 = lineBuffer.substring(5);
+            if (lastPayload2.charAt(0) === " ") lastPayload2 = lastPayload2.substring(1);
+            if (lastPayload2 !== "[DONE]") {
+              try {
+                var lastData2 = JSON.parse(lastPayload2);
+                if (lastData2.choices && lastData2.choices[0] && lastData2.choices[0].finish_reason) {
+                  finishReason = lastData2.choices[0].finish_reason;
+                }
+                var lastDelta2 =
+                  lastData2.choices &&
+                  lastData2.choices[0] &&
+                  lastData2.choices[0].delta &&
+                  lastData2.choices[0].delta.content;
+                if (lastDelta2) {
+                  fullContent += lastDelta2;
+                  pendingText += lastDelta2;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
+        // 本轮强制 flush
+        flushStreamAppend(true);
+
+        if (!fullContent.trim()) {
+          if (turnIndex === 1) throw new Error("未收到有效响应");
+          // 续答轮次无内容：视为正常结束
+        }
+
+        // 合并到累积文本
+        accumulatedContent += fullContent;
+        anyResponseReceived = true;
+
+        // 把本轮 AI 回复加入 chatData，这样续答时上下文是完整的
+        if (fullContent.trim()) {
+          addMessageData("assistant", fullContent);
+        }
+
+        // 重置 fullContent，准备下一轮
+        fullContent = "";
+
+      } catch (err) {
+        if (err.name === "AbortError") {
+          userAborted = true;
+          if (fullContent.trim()) {
+            accumulatedContent += fullContent;
+            anyResponseReceived = true;
+            addMessageData("assistant", fullContent);
+            fullContent = "";
+          }
+        } else {
+          hadError = true;
+          errorMessage = err.message;
+          console.error(err);
+        }
+        break; // 任意错误都停止续答
       }
 
-      // 最后强制 flush 一次，确保流式期间显示的内容完整
-      flushStreamAppend(true);
+      // 判断是否需要续答
+      if (finishReason === "length" && autoContinueLeft > 0) {
+        autoContinueLeft--;
+        await delay(200);
+        continue;
+      }
+      break;
 
-      if (!fullContent.trim()) throw new Error("未收到有效响应");
-
-      // ===== 流结束：最终渲染 =====
-      var aiMsg = addMessageData("assistant", fullContent);
-      aiMsgDiv.dataset.msgId = aiMsg.id;
-      finalRender(fullContent, aiMsg);
+    } while (true);
+    // ===== 最终渲染与保存 =====
+    if (hadError) {
+      if (!accumulatedContent.trim()) {
+        bubble.innerHTML = renderContent("❌ 出错了：" + errorMessage);
+      } else {
+        // 已有部分内容，把错误信息以暗色小字追加末尾
+        accumulatedContent += "\n\n*（出错：" + errorMessage + "）*";
+        var aiMsgErr = addMessageData("assistant", accumulatedContent);
+        aiMsgDiv.dataset.msgId = aiMsgErr.id;
+        finalRender(accumulatedContent, aiMsgErr);
+      }
+      appendActions(bubble, aiMsgDiv, accumulatedContent || "");
+      attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: accumulatedContent || "" });
+    } else if (!anyResponseReceived && !userAborted) {
+      bubble.innerHTML = renderContent("❌ 未收到有效响应");
+      appendActions(bubble, aiMsgDiv, "");
+      attachLongPressToBubble(bubble, aiMsgDiv, { role: "assistant", content: "" });
+    } else if (userAborted && accumulatedContent.trim()) {
+      var aiMsgAborted = addMessageData("assistant", accumulatedContent);
+      aiMsgDiv.dataset.msgId = aiMsgAborted.id;
+      finalRender(accumulatedContent, aiMsgAborted);
+      saveChatHistory();
+    } else if (accumulatedContent.trim()) {
+      // 正常路径：最终渲染 + 保存
+      var aiMsgFinal = addMessageData("assistant", accumulatedContent);
+      aiMsgDiv.dataset.msgId = aiMsgFinal.id;
+      finalRender(accumulatedContent, aiMsgFinal);
 
       var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
       console.log(
-        "[灵知-流式] 全文 " + fullContent.length + " 字符" +
+        "[灵知-流式] 全文 " + accumulatedContent.length + " 字符" +
         " | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
-        " | 总耗时: " + (Date.now() - t0) + "ms"
+        " | 总耗时: " + (Date.now() - t0) + "ms" +
+        (finishReason === "length" ? " | finish_reason=length（已触发自动续答）" : "")
       );
 
       saveChatHistory();
-
-    } catch (err) {
-      if (err.name === "AbortError") {
-        if (fullContent.trim()) {
-          var partialMsg = addMessageData("assistant", fullContent);
-          aiMsgDiv.dataset.msgId = partialMsg.id;
-          finalRender(fullContent, partialMsg);
-          saveChatHistory();
-        } else {
-          aiMsgDiv.remove();
-        }
-      } else {
-        var errMsg = { role: "assistant", content: "❌ 出错了：" + err.message };
-        bubble.innerHTML = renderContent("❌ 出错了：" + err.message);
-        appendActions(bubble, aiMsgDiv, fullContent || "");
-        attachLongPressToBubble(bubble, aiMsgDiv, errMsg);
-        console.error(err);
-      }
-    } finally {
-      toggleSendButton(false);
-      abortController = null;
+    } else if (userAborted) {
+      aiMsgDiv.remove();
     }
+
+    toggleSendButton(false);
+    abortController = null;
   }
   /** 向 bubble 追加长按操作菜单绑定（移除了原 hover 显示的 × 删除按钮） */
   function appendActions(bubble, msgDiv, content) {
