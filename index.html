@@ -828,6 +828,41 @@
   }
   .chat-rename-ok:hover { opacity: 0.9; }
 
+  /* ========== 更新提示条 ========== */
+  .chat-update-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--c-primary-soft);
+    border-bottom: 1px solid var(--c-border);
+    font-size: 0.88rem;
+    color: var(--c-text);
+  }
+  .chat-update-bar.show { display: flex; }
+  .chat-update-text { flex: 1; }
+  .chat-update-btn {
+    padding: 5px 14px;
+    border: none;
+    border-radius: 6px;
+    background: var(--c-primary);
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .chat-update-btn:hover { opacity: 0.85; }
+  .chat-update-close {
+    background: transparent;
+    border: none;
+    color: var(--c-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    line-height: 1;
+    font-family: inherit;
+  }
+
   /* ========== 移动端适配 ========== */
   @media (max-width: 600px) {
     .chat-header { padding: 5px 12px; }
@@ -902,6 +937,12 @@
   <button type="button" class="chat-sidebar-new" id="chatSidebarNewBtn">✚ 新建话题</button>
   <div class="chat-sidebar-list" id="chatSidebarList"></div>
 </aside>
+
+<div class="chat-update-bar" id="chatUpdateBar" role="status" aria-live="polite">
+  <span class="chat-update-text">发现新版本</span>
+  <button type="button" class="chat-update-btn" id="chatUpdateBtn">刷新</button>
+  <button type="button" class="chat-update-close" id="chatUpdateClose" aria-label="关闭">×</button>
+</div>
 
 <div class="chat-confirm-overlay" id="chatConfirmOverlay" role="alertdialog" aria-modal="true" aria-labelledby="chatConfirmTitle">
   <div class="chat-confirm-modal">
@@ -2814,15 +2855,21 @@
         .then(function (reg) {
           console.log("[PWA] Service Worker 已注册，作用域：", reg.scope);
           // 有新版本 SW 时提示
-          reg.addEventListener("updatefound", function () {
-            var installing = reg.installing;
-            if (!installing) return;
-            installing.addEventListener("statechange", function () {
-              if (installing.state === "installed" && navigator.serviceWorker.controller) {
-                console.log("[PWA] 有新版本可用，下次打开页面时生效");
-              }
+            reg.addEventListener("updatefound", function () {
+              var installing = reg.installing;
+              if (!installing) return;
+              installing.addEventListener("statechange", function () {
+                if (installing.state === "installed" && navigator.serviceWorker.controller) {
+                  console.log("[PWA] 有新版本可用");
+                  var bar = document.getElementById("chatUpdateBar");
+                  var btn = document.getElementById("chatUpdateBtn");
+                  var close = document.getElementById("chatUpdateClose");
+                  if (bar) bar.classList.add("show");
+                  if (btn) btn.addEventListener("click", function () { location.reload(); });
+                  if (close) close.addEventListener("click", function () { bar.classList.remove("show"); });
+                }
+              });
             });
-          });
         })
         .catch(function (err) {
           console.warn("[PWA] Service Worker 注册失败：", err);
