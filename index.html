@@ -1049,6 +1049,10 @@
 
   /** 向当前会话添加消息 */
   function addMessageData(role, content) {
+    // 屏蔽 AI 固定开场白
+    if (role === "assistant") {
+      content = content.replace(/^您好！我是 Agnes-2\.0-Flash，由 Sapiens AI 开发。\s*/g, "");
+    }
     var s = currentSession();
     if (!s) return { id: -1, role: role, content: content };
     var msg = { id: nextId++, role: role, content: content };
