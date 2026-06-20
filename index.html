@@ -13,8 +13,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="灵知">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" id="katex-css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" id="katex-js"></script>
 <style>
   /* ========== 设计令牌 ========== */
   :root {
@@ -282,6 +282,8 @@
     overscroll-behavior: contain;
     touch-action: pan-y;
     width: 100%;
+    /* 限制重绘/重排范围，提升滚动性能 */
+    contain: content;
     /* Firefox 滚动条 */
     scrollbar-width: thin;
     scrollbar-color: var(--c-scrollbar) transparent;
@@ -321,6 +323,8 @@
     -webkit-user-select: none;
     -webkit-touch-callout: none;
     -webkit-user-drag: none;
+    /* 限制重绘范围：每个气泡独立，不影响其他内容 */
+    contain: layout paint;
   }
   .message.user .msg-bubble {
     background: var(--c-primary-soft);
@@ -479,8 +483,14 @@
     flex-shrink: 0;
     align-items: flex-end;
   }
-  .chat-input {
+  .chat-input-wrapper {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .chat-input {
     padding: 12px 16px;
     border: 2px solid var(--c-border);
     border-radius: var(--radius-btn);
@@ -494,9 +504,20 @@
     line-height: 1.5;
     color: var(--c-text);
     background: var(--c-surface);
+    width: 100%;
   }
   .chat-input:focus { border-color: var(--c-primary); outline: none; }
   .chat-input:focus-visible { outline: none; }
+  .chat-input-counter {
+    font-size: 0.7rem;
+    color: var(--c-muted);
+    text-align: right;
+    padding-right: 4px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .chat-input-counter.is-warning { color: var(--c-primary); }
+  .chat-input-counter.is-limit { color: var(--c-danger); }
   .chat-send-btn {
     width: 44px;
     height: 44px;
@@ -795,14 +816,17 @@
   <main class="chat-messages" id="chatMessages" role="log" aria-live="polite" aria-label="聊天消息"></main>
 
   <footer class="chat-input-area">
-    <textarea
-      class="chat-input"
-      id="chatInput"
-      placeholder="输入你的问题……"
-      rows="1"
-      maxlength="2000"
-      aria-label="消息输入框"
-    ></textarea>
+    <div class="chat-input-wrapper">
+      <textarea
+        class="chat-input"
+        id="chatInput"
+        placeholder="输入你的问题……"
+        rows="1"
+        maxlength="2000"
+        aria-label="消息输入框"
+      ></textarea>
+      <div class="chat-input-counter" id="chatInputCounter" aria-live="polite">0 / 2000</div>
+    </div>
     <button type="button" class="chat-send-btn" id="chatSendBtn" title="发送" aria-label="发送">→</button>
   </footer>
 
@@ -938,7 +962,8 @@
   var nextId = 1;          // 消息自增 ID
   var isGenerating = false;
   var abortController = null;
-  var pendingDeleteMsg = null;
+  /** pendingOperation: { type: 'msg' | 'session' | 'clearAll', ... } */
+  var pendingOperation = null;
   var scrollRafId = null;
 
   /** 获取当前会话 */
@@ -999,12 +1024,9 @@
   }
 
   /** 删除会话 */
-  /** 待删除的会话 ID */
-  var pendingDeleteSessionId = null;
-
   /** 弹窗确认删除会话 */
   function confirmDeleteSession(id) {
-    pendingDeleteSessionId = id;
+    pendingOperation = { type: 'session', id: id };
     chatConfirmTitle.textContent = "确认删除这个话题？";
     chatConfirmWarn.textContent = "该话题的所有聊天记录将被删除";
     showConfirm();
@@ -1112,18 +1134,20 @@
   var IDENTITY_REPLY = "你好！我是灵知，由Stone开发，大模型调用Sapiens。";
   function sanitizeIdentity(text) {
     if (!text) return text;
-    // 常见的模型自称短语（大小写不敏感，末尾标点一起吞掉避免双句号）
+    // 常见的模型自称短语（末尾标点一起吞掉避免双句号）
+    // ⚠ 注意：故意不带 /g 修饰符——带 /g 的 .test() 会残留 lastIndex，
+    //    导致对同一正则反复调用时出现漏匹配。
     var identityPhrases = [
-      /我(是|由|为)(由)?\s*[Ss]apiens[^。\n]{0,25}开发的[^。！？\n]*[。！？.!?]?/g,
-      /我(是|由|为)(由)?\s*[Ss]apiens[^。！？\n]{0,40}开发[^。！？\n]*[。！？.!?]?/g,
-      /我(是|由)(一个)?\s*[Aa]gnes[^。\n]{0,25}开发的[^。！？\n]*[。！？.!?]?/g,
-      /我(是|为)(一个)?\s*[Aa]gnes[^。！？\n]{0,40}开发[^。！？\n]*[。！？.!?]?/g,
-      /我叫?[Aa]gnes[^。！？\n]{0,30}开发[^。！？\n]*[。！？.!?]?/g,
-      /[Ss]apiens[^。！？\n]{0,30}开发的[^。！？\n]*[。！？.!?]?/g,
-      /[Aa]gnes[^。！？\n]{0,30}开发[^。！？\n]*[。！？.!?]?/g,
-      /您好！我是\s*[Aa]gnes[^。！？\n]*[。！？.!?]?/g,
-      /你好！我是\s*[Aa]gnes[^。！？\n]*[。！？.!?]?/g,
-      /我是(一款|一个)?(基于)?\s*[Aa]gnes[^。！？\n]*(开发)?[^。！？\n]*[。！？.!?]?/g,
+      /我(是|由|为)(由)?\s*[Ss]apiens[^。\n]{0,25}开发的[^。！？\n]*[。！？.!?]?/,
+      /我(是|由|为)(由)?\s*[Ss]apiens[^。！？\n]{0,40}开发[^。！？\n]*[。！？.!?]?/,
+      /我(是|由)(一个)?\s*[Aa]gnes[^。\n]{0,25}开发的[^。！？\n]*[。！？.!?]?/,
+      /我(是|为)(一个)?\s*[Aa]gnes[^。！？\n]{0,40}开发[^。！？\n]*[。！？.!?]?/,
+      /我叫?[Aa]gnes[^。！？\n]{0,30}开发[^。！？\n]*[。！？.!?]?/,
+      /[Ss]apiens[^。！？\n]{0,30}开发的[^。！？\n]*[。！？.!?]?/,
+      /[Aa]gnes[^。！？\n]{0,30}开发[^。！？\n]*[。！？.!?]?/,
+      /您好！我是\s*[Aa]gnes[^。！？\n]*[。！？.!?]?/,
+      /你好！我是\s*[Aa]gnes[^。！？\n]*[。！？.!?]?/,
+      /我是(一款|一个)?(基于)?\s*[Aa]gnes[^。！？\n]*(开发)?[^。！？\n]*[。！？.!?]?/,
     ];
     var result = text;
     var replaced = false;
@@ -1571,6 +1595,9 @@
 
     var menu = document.createElement("div");
     menu.className = "msg-action-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "消息操作");
+    menu.setAttribute("tabindex", "-1");
 
     // 菜单项
     var items = [
@@ -1579,23 +1606,44 @@
       { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
 
+    var focusableItems = [];
     for (var i = 0; i < items.length; i++) {
       if (i > 0) {
         var divider = document.createElement("div");
         divider.className = "msg-action-menu-divider";
+        divider.setAttribute("role", "separator");
         menu.appendChild(divider);
       }
-      var itemEl = document.createElement("div");
+      var itemEl = document.createElement("button");
+      itemEl.type = "button";
       itemEl.className = "msg-action-menu-item";
+      itemEl.setAttribute("role", "menuitem");
       itemEl.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
-      (function (action) {
-        itemEl.addEventListener("click", function () {
+      (function (action, item) {
+        item.addEventListener("click", function () {
           hideMsgActionMenu();
           action();
         });
-      })(items[i].action);
+      })(items[i].action, itemEl);
       menu.appendChild(itemEl);
+      focusableItems.push(itemEl);
     }
+
+    // 键盘：上下箭头在菜单项之间导航，Enter 激活，Esc 关闭
+    menu.addEventListener("keydown", function (e) {
+      var currentIdx = focusableItems.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        var nextIdx = (currentIdx + 1) % focusableItems.length;
+        focusableItems[nextIdx].focus();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        var prevIdx = (currentIdx - 1 + focusableItems.length) % focusableItems.length;
+        focusableItems[prevIdx].focus();
+      } else if (e.key === "Escape") {
+        hideMsgActionMenu();
+      }
+    });
 
     document.body.appendChild(menu);
 
@@ -1624,6 +1672,8 @@
     menu.style.left = Math.round(menuLeft) + "px";
     menu.style.top = Math.round(menuTop) + "px";
 
+    // 焦点移到第一个菜单项
+    if (focusableItems[0]) focusableItems[0].focus();
     currentActionMenu = menu;
   }
 
@@ -1700,6 +1750,13 @@
 
     chatInput.value = "";
     chatInput.style.height = "auto";
+    // 手动重置字数计数器（编程式赋值不触发 input 事件）
+    var counterAfterSend = document.getElementById("chatInputCounter");
+    if (counterAfterSend) {
+      var max = chatInput.maxLength || 2000;
+      counterAfterSend.textContent = "0 / " + max;
+      counterAfterSend.classList.remove("is-warning", "is-limit");
+    }
     toggleSendButton(true);
 
     // 移除空状态
@@ -2117,14 +2174,14 @@
    * ================================================================ */
 
   function confirmDeleteMessage(msgDiv) {
-    pendingDeleteMsg = msgDiv;
+    pendingOperation = { type: 'msg', msgDiv: msgDiv };
     chatConfirmTitle.textContent = "确认删除这条消息？";
     chatConfirmWarn.textContent = "删除后无法恢复";
     showConfirm();
   }
 
   function confirmClearAll() {
-    pendingDeleteMsg = null;
+    pendingOperation = { type: 'clearAll' };
     chatConfirmTitle.textContent = "确认清空聊天记录？";
     chatConfirmWarn.textContent = "此操作不可恢复";
     showConfirm();
@@ -2132,14 +2189,15 @@
 
   function showConfirm() {
     chatConfirmOverlay.classList.add("show");
+    chatConfirmOverlay.setAttribute("aria-hidden", "false");
     // 聚焦到取消按钮（安全默认）
     setTimeout(function () { chatConfirmCancel.focus(); }, 50);
   }
 
   function hideConfirm() {
     chatConfirmOverlay.classList.remove("show");
-    pendingDeleteMsg = null;
-    pendingDeleteSessionId = null;
+    chatConfirmOverlay.setAttribute("aria-hidden", "true");
+    pendingOperation = null;
   }
 
   /** 焦点陷阱——Tab 在弹窗内循环 */
@@ -2160,26 +2218,26 @@
   }
 
   function onConfirmOk() {
-    if (pendingDeleteSessionId) {
+    if (pendingOperation && pendingOperation.type === 'session') {
       // 删除整个会话
-      var sid = pendingDeleteSessionId;
-      pendingDeleteSessionId = null;
+      var sid = pendingOperation.id;
+      pendingOperation = null;
       hideConfirm();
       deleteSession(sid);
       return;
     }
 
-    if (pendingDeleteMsg) {
-      // 删除单条
-      var id = parseInt(pendingDeleteMsg.dataset.msgId, 10);
-      removeMessageData(id);
-      pendingDeleteMsg.remove();
-      pendingDeleteMsg = null;
-      saveChatHistory();
+    if (pendingOperation && pendingOperation.type === 'msg') {
+        // 删除单条消息
+        var id = parseInt(pendingOperation.msgDiv.dataset.msgId, 10);
+        removeMessageData(id);
+        pendingOperation.msgDiv.remove();
+        pendingOperation = null;
+        saveChatHistory();
 
-      if (chatData().length === 0) renderEmptyState();
+        if (chatData().length === 0) renderEmptyState();
     } else {
-      // 清空当前会话的所有消息
+      // 清空当前会话的所有消息（默认操作）
       if (abortController) { abortController.abort(); abortController = null; }
       toggleSendButton(false);
       var s = currentSession();
@@ -2223,12 +2281,20 @@
     renderSidebarList();
     chatSidebar.classList.add("open");
     chatSidebarOverlay.classList.add("show");
+    chatSidebar.setAttribute("aria-hidden", "false");
+    chatSidebarOverlay.setAttribute("aria-hidden", "false");
+    // 打开侧栏时将焦点移到关闭按钮
+    setTimeout(function () {
+      if (chatSidebarClose) chatSidebarClose.focus();
+    }, 200);
   }
 
   /** 关闭会话列表侧栏 */
   function closeSidebar() {
     chatSidebar.classList.remove("open");
     chatSidebarOverlay.classList.remove("show");
+    chatSidebar.setAttribute("aria-hidden", "true");
+    chatSidebarOverlay.setAttribute("aria-hidden", "true");
   }
 
   /** 渲染侧栏会话列表 */
@@ -2318,7 +2384,23 @@
     // ===== 事件绑定 =====
 
     // 输入框
-    chatInput.addEventListener("input", updateInputHeight);
+    var chatInputCounter = document.getElementById("chatInputCounter");
+
+    function updateInputCounter() {
+      if (!chatInputCounter) return;
+      var len = chatInput.value.length;
+      var limit = chatInput.maxLength || 2000;
+      chatInputCounter.textContent = len + " / " + limit;
+      chatInputCounter.classList.remove("is-warning", "is-limit");
+      if (len >= limit) chatInputCounter.classList.add("is-limit");
+      else if (len >= limit * 0.7) chatInputCounter.classList.add("is-warning");
+    }
+    updateInputCounter();
+
+    chatInput.addEventListener("input", function () {
+      updateInputHeight();
+      updateInputCounter();
+    });
     chatInput.addEventListener("keydown", function (e) {
       // ✅ IME 输入法组合状态不触发发送
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -2441,21 +2523,41 @@
     chatInput.focus();
   }
 
-  /** 等待 KaTeX 加载完毕再初始化（解决 defer 竞态） */
+  /** 等待 KaTeX 加载——事件驱动：script.onload / DOMContentLoaded / 超时兜底 */
   function initWhenReady() {
-    var attempts = 0;
-    var maxAttempts = CONFIG.KATEX_WAIT_TIMEOUT / 100;
+    var initialized = false;
+    var timeoutId = null;
 
-    function check() {
-      if (typeof katex !== "undefined" || attempts >= maxAttempts) {
-        // KaTeX 已加载，或超时后放弃等待（renderContent 有 fallback）
-        setupChat();
-      } else {
-        attempts++;
-        setTimeout(check, 100);
+    function tryInit(source) {
+      if (initialized) return;
+      // 如果 KaTeX 还没加载好，再给一小段时间（某些浏览器 defer 解析顺序不同）
+      if (typeof katex === "undefined") {
+        // source === "timeout" 时直接初始化（renderContent 有纯文本 fallback）
+        if (source !== "timeout") return;
       }
+      initialized = true;
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+      setupChat();
     }
-    check();
+
+    // 超时兜底：5s 后无论如何初始化，避免卡死
+    timeoutId = setTimeout(function () { tryInit("timeout"); }, CONFIG.KATEX_WAIT_TIMEOUT);
+
+    // 方式一：脚本 onload 事件
+    var katexScript = document.getElementById("katex-js");
+    if (katexScript) {
+      katexScript.addEventListener("load", function () { tryInit("onload"); });
+      katexScript.addEventListener("error", function () { tryInit("error"); });
+      // 脚本可能已经在上述代码执行前加载完成（缓存命中），此时 readyState 无意义，
+      // 靠方式二 DOMContentLoaded + typeof 检查兜底
+    }
+
+    // 方式二：DOMContentLoaded 时检查一下——如果脚本已缓存命中，onload 可能已错过
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", function () { tryInit("DOMContentLoaded"); });
+    } else {
+      tryInit("DOMContentLoaded");
+    }
   }
 
   // 启动

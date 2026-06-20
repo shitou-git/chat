@@ -6,7 +6,7 @@
  * - API 请求：仅网络，不缓存
  * ============================================================ */
 
-const CACHE_VERSION = "lingzhi-v20";
+const CACHE_VERSION = "lingzhi-v21";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
@@ -18,17 +18,31 @@ const PRECACHE_URLS = [
   "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js",
 ];
 
+// 判断是否为跨域资源
+function isCrossOrigin(urlStr) {
+  try {
+    var u = new URL(urlStr, self.location.href);
+    return u.origin !== self.location.origin;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ---------- install：预缓存核心资源 ----------
 self.addEventListener("install", function (event) {
   event.waitUntil(
     caches
       .open(CACHE_VERSION)
       .then(function (cache) {
-        return cache.addAll(
-          PRECACHE_URLS.map(function (url) {
-            return new Request(url, { mode: "no-cors" });
-          })
-        );
+        // 同源资源使用默认 mode (cors)，跨域 CDN 也使用 cors
+        // （jsdelivr 支持 CORS），避免 opaque response 的不确定状态
+        var requests = PRECACHE_URLS.map(function (url) {
+          if (isCrossOrigin(url)) {
+            return new Request(url, { mode: "cors", credentials: "omit" });
+          }
+          return url;
+        });
+        return cache.addAll(requests);
       })
       .then(function () {
         return self.skipWaiting(); // 激活新 SW，不等待旧 SW 交出控制权
@@ -81,10 +95,12 @@ self.addEventListener("fetch", function (event) {
       fetch(req)
         .then(function (response) {
           // 成功时更新缓存中的 index.html
-          const copy = response.clone();
-          caches.open(CACHE_VERSION).then(function (cache) {
-            cache.put("./index.html", copy);
-          });
+          if (response && response.status === 200) {
+            const copy = response.clone();
+            caches.open(CACHE_VERSION).then(function (cache) {
+              cache.put("./index.html", copy);
+            });
+          }
           return response;
         })
         .catch(function () {
@@ -102,11 +118,13 @@ self.addEventListener("fetch", function (event) {
       if (cached) return cached;
       return fetch(req)
         .then(function (response) {
-          // 只缓存同源资源与 CDN 资源，且响应正常
+          // 只缓存成功响应 (status 200)，且类型为 basic/cors
+          // 注意：不缓存 opaque response —— 其 status 不可读，
+          // CDN 返回的 4xx/5xx 会被误认为成功缓存下来
           if (
             response &&
             response.status === 200 &&
-            (response.type === "basic" || response.type === "cors" || response.type === "opaque")
+            (response.type === "basic" || response.type === "cors")
           ) {
             const copy = response.clone();
             caches.open(CACHE_VERSION).then(function (cache) {
