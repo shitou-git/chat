@@ -212,6 +212,14 @@
     margin: 0;
     color: var(--c-text);
   }
+  .chat-title-link {
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 8px;
+    transition: background 0.2s;
+    user-select: none;
+  }
+  .chat-title-link:hover { background: var(--header-btn-hover); }
   .chat-header-actions {
     display: flex;
     gap: 6px;
@@ -898,7 +906,7 @@
       <span></span><span></span>
     </button>
     <div class="chat-header-title">
-      <h2>灵知</h2>
+      <h2 class="chat-title-link" id="chatTitleLink" title="点击刷新">灵知</h2>
     </div>
     <div class="chat-header-actions">
       <button type="button" class="chat-header-btn chat-header-new-btn" id="chatNewBtn" title="新话题" aria-label="新话题">
@@ -2703,6 +2711,14 @@
     // 新话题
     chatNewBtn.addEventListener("click", startNewSession);
     chatSidebarNewBtn.addEventListener("click", startNewSession);
+
+    // 点击标题刷新页面
+    var chatTitleLink = document.getElementById("chatTitleLink");
+    if (chatTitleLink) {
+      chatTitleLink.addEventListener("click", function () {
+        location.reload();
+      });
+    }
 
     // ===== 深色模式切换 =====
     var THEME_STORAGE_KEY = "lingzhi_theme"; // "dark" / "light" / 未设置=跟随系统
