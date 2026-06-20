@@ -1005,6 +1005,16 @@
     MAX_INPUT_LENGTH: 2000,
   };
 
+  /** 身份检测关键词（预处理为小写，避免每次发送都 toLowerCase） */
+  var IDENTITY_KEYWORDS_LOWER = [
+    "你是谁", "您是谁", "你是谁呀", "你是谁啊",
+    "你叫什么名字", "你叫啥",
+    "你的名字", "您的名字",
+    "你是哪位", "你是哪个", "你是什么东西",
+    "介绍一下你自己", "介绍一下自己", "介绍你自己", "自我介绍",
+    "who are you", "what is your name", "your name"
+  ];
+
   /*
    * ============================================================
    *  凭证混淆层
@@ -1084,6 +1094,21 @@
   var abortController = null;
   var pendingDeleteMsg = null;
   var scrollRafId = null;
+
+  /** 保存会话防抖：避免流式期间频繁 JSON.stringify + localStorage 写入 */
+  var _saveDebounceTimer = null;
+  var _savePending = false;
+  function scheduleSave() {
+    _savePending = true;
+    if (_saveDebounceTimer) return;
+    _saveDebounceTimer = setTimeout(function () {
+      _saveDebounceTimer = null;
+      if (_savePending) {
+        _savePending = false;
+        saveSessions();
+      }
+    }, 250);
+  }
 
   /** 获取当前会话 */
   function currentSession() {
@@ -1178,22 +1203,29 @@
     renderSidebarList();
   }
 
-  /** 持久化所有会话 */
+  /** 持久化所有会话（注意：仅在数据真正改变时调用；流式期间走 scheduleSave 防抖） */
   function saveSessions() {
     try {
-      // 保存前对每个会话的消息做去重（按 msg.id 去重，避免误删合法的相同文本消息）
-      sessions.forEach(function (s) {
-        if (!s || !s.messages) return;
-        var seen = {};
+      // 去重：按 msg.id 防重复，合法相同内容消息保留
+      // 消息 id 是自增的，正常不会重复；这里仅做兜底，不改变顺序
+      for (var s = 0; s < sessions.length; s++) {
+        var session = sessions[s];
+        if (!session || !session.messages) continue;
+        var seenIds = new Set();
         var deduped = [];
-        s.messages.forEach(function (m) {
-          if (!m || !m.content) return;
-          if (m.id != null && seen[m.id]) return;
-          if (m.id != null) seen[m.id] = true;
+        for (var i = 0; i < session.messages.length; i++) {
+          var m = session.messages[i];
+          if (!m || !m.content) continue;
+          if (m.id != null) {
+            if (seenIds.has(m.id)) continue;
+            seenIds.add(m.id);
+          }
           deduped.push(m);
-        });
-        s.messages = deduped;
-      });
+        }
+        if (deduped.length !== session.messages.length) {
+          session.messages = deduped;
+        }
+      }
       localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(sessions));
     } catch (e) {
       console.warn("saveSessions error:", e);
@@ -1231,15 +1263,20 @@
     }
     chatMessages.innerHTML = "";
 
-    // 按 msg.id 去重（避免误删合法的相同文本消息）
-    var seenIds = {};
-    s.messages.forEach(function (m) {
-      if (!m.content || !m.content.trim()) return;
-      if (m.id != null && seenIds[m.id]) return;
-      if (m.id != null) seenIds[m.id] = true;
-      var el = createMessageElement(m);
-      chatMessages.appendChild(el);
-    });
+    // 批量构建 DOM，最后一次性插入，减少重排
+    var frag = document.createDocumentFragment();
+    var seenIds = new Set();
+    var msgs = s.messages;
+    for (var mi = 0; mi < msgs.length; mi++) {
+      var m = msgs[mi];
+      if (!m || !m.content || !m.content.trim()) continue;
+      if (m.id != null) {
+        if (seenIds.has(m.id)) continue;
+        seenIds.add(m.id);
+      }
+      frag.appendChild(createMessageElement(m));
+    }
+    chatMessages.appendChild(frag);
     scrollToBottom(true);
   }
 
@@ -1267,65 +1304,89 @@
       .replace(/'/g, "&#39;");
   }
 
+  /** Unicode 希腊字母 / 数学符号 快速查找表（仅在包含相关字符时启用） */
+  var _GREEK_MAP = {
+    "π": "$\\\\pi$", "α": "$\\\\alpha$", "β": "$\\\\beta$",
+    "γ": "$\\\\gamma$", "δ": "$\\\\delta$", "ε": "$\\\\varepsilon$",
+    "θ": "$\\\\theta$", "λ": "$\\\\lambda$", "μ": "$\\\\mu$",
+    "ρ": "$\\\\rho$", "σ": "$\\\\sigma$", "τ": "$\\\\tau$",
+    "φ": "$\\\\varphi$", "ψ": "$\\\\psi$", "ω": "$\\\\omega$",
+    "Δ": "$\\\\Delta$", "Σ": "$\\\\Sigma$", "Ω": "$\\\\Omega$",
+  };
+  var _SYMBOL_MAP = {
+    "√": "\\sqrt ", "×": "\\times ", "÷": "\\div ",
+    "≤": "\\leq ", "≥": "\\geq ", "≠": "\\neq ",
+    "→": "\\rightarrow ", "←": "\\leftarrow ",
+    "↔": "\\leftrightarrow ", "∞": "\\infty ",
+    "∑": "\\sum ", "∫": "\\int ", "∏": "\\prod ",
+    "∂": "\\partial ", "∇": "\\nabla ",
+    "∈": "\\in ", "∉": "\\notin ",
+    "⊂": "\\subset ", "⊃": "\\supset ",
+    "∪": "\\cup ", "∩": "\\cap ",
+    "∀": "\\forall ", "∃": "\\exists ",
+    "°": "^\\circ ", "±": "\\pm ", "∓": "\\mp ",
+  };
+  // 预计算这两张表用到的所有字符（用于快速检测）
+  var _GREEK_CHARS = "";
+  for (var k in _GREEK_MAP) { if (Object.prototype.hasOwnProperty.call(_GREEK_MAP, k)) _GREEK_CHARS += k; }
+  var _SYMBOL_CHARS = "";
+  for (var k2 in _SYMBOL_MAP) { if (Object.prototype.hasOwnProperty.call(_SYMBOL_MAP, k2)) _SYMBOL_CHARS += k2; }
+
   function fixLatex(text) {
-    return text
-      // \sqrt{x}{y} → \sqrt[x]{y}（根号下标旧写法）
-      .replace(/\\sqrt\{([^{}]+)\}\{([^{}]+)\}/g, "\\sqrt[$1]{$2}")
-      // \sqrt2 → \sqrt{2}（裸数字）
-      .replace(/\\sqrt(\d)/g, "\\sqrt{$1}")
-      // \sqrt[3]x → \sqrt[3]{x}（有下标但缺花括号）
-      .replace(/\\sqrt(\[[^\]]+\])([a-zA-Z])/g, "\\sqrt$1{$2}")
-      // \frac12 → \frac{1}{2}（裸数字分数）
-      .replace(/\\frac(\d)(\d)/g, "\\frac{$1}{$2}")
-      .replace(/\\frac(\d)\{([^{}]+)\}/g, "\\frac{$1}{$2}")
-      .replace(/\\frac\{([^{}]+)\}(\d)/g, "\\frac{$1}{$2}")
-      // Unicode 数学符号 → LaTeX（仅在公式中生效，避免在普通文本中生成 \sqrt 等字面量）
-      .replace(/√/g, "\\sqrt ")
-      .replace(/×/g, "\\times ")
-      .replace(/÷/g, "\\div ")
-      .replace(/≤/g, "\\leq ")
-      .replace(/≥/g, "\\geq ")
-      .replace(/≠/g, "\\neq ")
-      .replace(/→/g, "\\rightarrow ")
-      .replace(/←/g, "\\leftarrow ")
-      .replace(/↔/g, "\\leftrightarrow ")
-      .replace(/∞/g, "\\infty ")
-      .replace(/∑/g, "\\sum ")
-      .replace(/∫/g, "\\int ")
-      .replace(/∏/g, "\\prod ")
-      .replace(/∂/g, "\\partial ")
-      .replace(/∇/g, "\\nabla ")
-      .replace(/∈/g, "\\in ")
-      .replace(/∉/g, "\\notin ")
-      .replace(/⊂/g, "\\subset ")
-      .replace(/⊃/g, "\\supset ")
-      .replace(/∪/g, "\\cup ")
-      .replace(/∩/g, "\\cap ")
-      .replace(/∀/g, "\\forall ")
-      .replace(/∃/g, "\\exists ")
-      .replace(/°/g, "^\\circ ")
-      .replace(/±/g, "\\pm ")
-      .replace(/∓/g, "\\mp ")
-      // 希腊字母（用零宽负向后行，避免误伤已有 \alpha 的写法）
-      // 替换后用 $...$ 包起来，确保 renderContent 把它们当作公式渲染
-      .replace(/(?<!\\)π/g, "$\\\\pi$")
-      .replace(/(?<!\\)α/g, "$\\\\alpha$")
-      .replace(/(?<!\\)β/g, "$\\\\beta$")
-      .replace(/(?<!\\)γ/g, "$\\\\gamma$")
-      .replace(/(?<!\\)δ/g, "$\\\\delta$")
-      .replace(/(?<!\\)ε/g, "$\\\\varepsilon$")
-      .replace(/(?<!\\)θ/g, "$\\\\theta$")
-      .replace(/(?<!\\)λ/g, "$\\\\lambda$")
-      .replace(/(?<!\\)μ/g, "$\\\\mu$")
-      .replace(/(?<!\\)ρ/g, "$\\\\rho$")
-      .replace(/(?<!\\)σ/g, "$\\\\sigma$")
-      .replace(/(?<!\\)τ/g, "$\\\\tau$")
-      .replace(/(?<!\\)φ/g, "$\\\\varphi$")
-      .replace(/(?<!\\)ψ/g, "$\\\\psi$")
-      .replace(/(?<!\\)ω/g, "$\\\\omega$")
-      .replace(/(?<!\\)Δ/g, "$\\\\Delta$")
-      .replace(/(?<!\\)Σ/g, "$\\\\Sigma$")
-      .replace(/(?<!\\)Ω/g, "$\\\\Omega$");
+    if (!text) return text;
+
+    // 阶段1：\sqrt / \frac 格式规范化（只在存在反斜杠时运行）
+    var result = text;
+    if (result.indexOf("\\") !== -1) {
+      result = result
+        .replace(/\\sqrt\{([^{}]+)\}\{([^{}]+)\}/g, "\\sqrt[$1]{$2}")
+        .replace(/\\sqrt(\d)/g, "\\sqrt{$1}")
+        .replace(/\\sqrt(\[[^\]]+\])([a-zA-Z])/g, "\\sqrt$1{$2}")
+        .replace(/\\frac(\d)(\d)/g, "\\frac{$1}{$2}")
+        .replace(/\\frac(\d)\{([^{}]+)\}/g, "\\frac{$1}{$2}")
+        .replace(/\\frac\{([^{}]+)\}(\d)/g, "\\frac{$1}{$2}");
+    }
+
+    // 阶段2：数学符号 → LaTeX（单次扫描，比 20+ 个链式正则快得多）
+    var needsSymbolPass = false;
+    for (var i = 0; i < _SYMBOL_CHARS.length; i++) {
+      if (result.indexOf(_SYMBOL_CHARS.charAt(i)) !== -1) { needsSymbolPass = true; break; }
+    }
+    if (needsSymbolPass) {
+      var _out2 = "";
+      var _last2 = 0;
+      for (var j = 0; j < result.length; j++) {
+        var ch = result.charAt(j);
+        if (_SYMBOL_MAP[ch]) {
+          if (j > _last2) _out2 += result.substring(_last2, j);
+          _out2 += _SYMBOL_MAP[ch];
+          _last2 = j + 1;
+        }
+      }
+      if (_last2 === 0) return result; // 没命中（快速路径）
+      if (_last2 < result.length) _out2 += result.substring(_last2);
+      result = _out2;
+    }
+
+    // 阶段3：希腊字母 → 公式包裹（快速检测，没有就跳过 18 个正则）
+    var needsGreekPass = false;
+    for (var gi = 0; gi < _GREEK_CHARS.length; gi++) {
+      if (result.indexOf(_GREEK_CHARS.charAt(gi)) !== -1) { needsGreekPass = true; break; }
+    }
+    if (needsGreekPass) {
+      // 使用零宽负向后行避免误伤已有 \alpha
+      result = result
+        .replace(/(?<!\\)π/g, "$\\\\pi$").replace(/(?<!\\)α/g, "$\\\\alpha$")
+        .replace(/(?<!\\)β/g, "$\\\\beta$").replace(/(?<!\\)γ/g, "$\\\\gamma$")
+        .replace(/(?<!\\)δ/g, "$\\\\delta$").replace(/(?<!\\)ε/g, "$\\\\varepsilon$")
+        .replace(/(?<!\\)θ/g, "$\\\\theta$").replace(/(?<!\\)λ/g, "$\\\\lambda$")
+        .replace(/(?<!\\)μ/g, "$\\\\mu$").replace(/(?<!\\)ρ/g, "$\\\\rho$")
+        .replace(/(?<!\\)σ/g, "$\\\\sigma$").replace(/(?<!\\)τ/g, "$\\\\tau$")
+        .replace(/(?<!\\)φ/g, "$\\\\varphi$").replace(/(?<!\\)ψ/g, "$\\\\psi$")
+        .replace(/(?<!\\)ω/g, "$\\\\omega$").replace(/(?<!\\)Δ/g, "$\\\\Delta$")
+        .replace(/(?<!\\)Σ/g, "$\\\\Sigma$").replace(/(?<!\\)Ω/g, "$\\\\Omega$");
+    }
+    return result;
   }
 
   /**
@@ -1465,20 +1526,24 @@
     return escapeHtml(text).replace(/\n/g, "<br>");
   }
 
-  /** 长公式自动缩小字体 */
+  /** 长公式自动缩小字体（在传入的 container 作用域内找，避免全局查询） */
   function autoScaleKatex(container) {
     if (!container) return;
     var blocks = container.querySelectorAll(".katex-block");
-    blocks.forEach(function (block) {
-      block.style.fontSize = "";
+    if (!blocks.length) return;
+    var scales = [0.96, 0.86, 0.76, 0.66, 0.56];
+    for (var i = 0; i < blocks.length; i++) {
+      var block = blocks[i];
+      // 之前已经缩放并且没有溢出，跳过（避免重复测量触发重排）
+      if (block._autoScaled) continue;
       var parentWidth = block.clientWidth || block.parentElement.clientWidth || 300;
-      var scales = [0.96, 0.86, 0.76, 0.66, 0.56];
-      for (var i = 0; i < scales.length; i++) {
-        block.style.fontSize = scales[i] + "em";
+      for (var s = 0; s < scales.length; s++) {
+        block.style.fontSize = scales[s] + "em";
         var el = block.querySelector(".katex-display") || block.querySelector(".katex");
         if (!el || el.scrollWidth <= parentWidth + 2) break;
       }
-    });
+      block._autoScaled = true;
+    }
   }
 
   /* ================================================================
@@ -1513,9 +1578,13 @@
    * 数据管理 — 已在会话管理区定义
    * ================================================================ */
 
-  /** 保存当前会话（兼容旧调用名） */
-  function saveChatHistory() {
-    saveSessions();
+  /** 保存当前会话（兼容旧调用名）——默认使用防抖，避免流式期间频繁写入 */
+  function saveChatHistory(immediate) {
+    if (immediate) {
+      saveSessions();
+    } else {
+      scheduleSave();
+    }
     // 如果侧栏打开，同步刷新
     if (chatSidebar && chatSidebar.classList.contains("open")) {
       renderSidebarList();
@@ -1758,10 +1827,18 @@
    * 输入框
    * ================================================================ */
 
+  var _inputResizeRaf = null;
   function updateInputHeight() {
-    chatInput.style.height = "auto";
-    chatInput.style.height =
-      Math.min(chatInput.scrollHeight, CONFIG.MAX_TEXTAREA_HEIGHT) + "px";
+    if (_inputResizeRaf) return;
+    _inputResizeRaf = requestAnimationFrame(function () {
+      _inputResizeRaf = null;
+      var targetHeight = chatInput.scrollHeight;
+      if (targetHeight > CONFIG.MAX_TEXTAREA_HEIGHT) {
+        targetHeight = CONFIG.MAX_TEXTAREA_HEIGHT;
+      }
+      chatInput.style.height = "auto";
+      chatInput.style.height = targetHeight + "px";
+    });
   }
 
   /* ================================================================
@@ -1813,22 +1890,14 @@
 
     // 身份类问题——只在明确询问AI身份时触发
     // 精确匹配完整短语，避免误判正常问题（如"青光眼是什么"）
-    var identityKeywords = [
-      "你是谁", "您是谁", "你是谁呀", "你是谁啊",
-      "你叫什么名字", "你叫啥",
-      "你的名字", "您的名字",
-      "你是哪位", "你是哪个", "你是什么东西",
-      "介绍一下你自己", "介绍一下自己", "介绍你自己", "自我介绍",
-      "who are you", "what is your name", "your name"
-    ];
     var trimmed = text.trim().toLowerCase();
-    var isIdentityQuestion = identityKeywords.some(function (keyword) {
-      return trimmed.indexOf(keyword.toLowerCase()) !== -1;
-    });
+    var isIdentityQuestion = false;
+    for (var ki = 0; ki < IDENTITY_KEYWORDS_LOWER.length; ki++) {
+      if (trimmed.indexOf(IDENTITY_KEYWORDS_LOWER[ki]) !== -1) { isIdentityQuestion = true; break; }
+    }
     // 二次验证：必须同时包含第二人称代词或英文身份词
-    if (isIdentityQuestion) {
-      var hasIdentityContext = /(你|您|who|your name)/i.test(text);
-      if (!hasIdentityContext) isIdentityQuestion = false;
+    if (isIdentityQuestion && !/(你|您|who|your name)/i.test(text)) {
+      isIdentityQuestion = false;
     }
     if (isIdentityQuestion) {
       var identityText = "我是灵知，请问有什么可以帮你的？";
