@@ -1173,10 +1173,9 @@
       createSession();
       closeSidebar();
       renderEmptyState();
-    } else {
-      saveSessions();
-      renderSidebarList();
     }
+    saveSessions();
+    renderSidebarList();
   }
 
   /** 持久化所有会话 */
@@ -1280,7 +1279,7 @@
       .replace(/\\frac(\d)(\d)/g, "\\frac{$1}{$2}")
       .replace(/\\frac(\d)\{([^{}]+)\}/g, "\\frac{$1}{$2}")
       .replace(/\\frac\{([^{}]+)\}(\d)/g, "\\frac{$1}{$2}")
-      // Unicode 数学符号 → LaTeX
+      // Unicode 数学符号 → LaTeX（仅在公式中生效，避免在普通文本中生成 \sqrt 等字面量）
       .replace(/√/g, "\\sqrt ")
       .replace(/×/g, "\\times ")
       .replace(/÷/g, "\\div ")
@@ -1308,24 +1307,25 @@
       .replace(/±/g, "\\pm ")
       .replace(/∓/g, "\\mp ")
       // 希腊字母（用零宽负向后行，避免误伤已有 \alpha 的写法）
-      .replace(/(?<!\\)π/g, "\\pi ")
-      .replace(/(?<!\\)α/g, "\\alpha ")
-      .replace(/(?<!\\)β/g, "\\beta ")
-      .replace(/(?<!\\)γ/g, "\\gamma ")
-      .replace(/(?<!\\)δ/g, "\\delta ")
-      .replace(/(?<!\\)ε/g, "\\varepsilon ")
-      .replace(/(?<!\\)θ/g, "\\theta ")
-      .replace(/(?<!\\)λ/g, "\\lambda ")
-      .replace(/(?<!\\)μ/g, "\\mu ")
-      .replace(/(?<!\\)ρ/g, "\\rho ")
-      .replace(/(?<!\\)σ/g, "\\sigma ")
-      .replace(/(?<!\\)τ/g, "\\tau ")
-      .replace(/(?<!\\)φ/g, "\\varphi ")
-      .replace(/(?<!\\)ψ/g, "\\psi ")
-      .replace(/(?<!\\)ω/g, "\\omega ")
-      .replace(/(?<!\\)Δ/g, "\\Delta ")
-      .replace(/(?<!\\)Σ/g, "\\Sigma ")
-      .replace(/(?<!\\)Ω/g, "\\Omega ");
+      // 替换后用 $...$ 包起来，确保 renderContent 把它们当作公式渲染
+      .replace(/(?<!\\)π/g, "$\\\\pi$")
+      .replace(/(?<!\\)α/g, "$\\\\alpha$")
+      .replace(/(?<!\\)β/g, "$\\\\beta$")
+      .replace(/(?<!\\)γ/g, "$\\\\gamma$")
+      .replace(/(?<!\\)δ/g, "$\\\\delta$")
+      .replace(/(?<!\\)ε/g, "$\\\\varepsilon$")
+      .replace(/(?<!\\)θ/g, "$\\\\theta$")
+      .replace(/(?<!\\)λ/g, "$\\\\lambda$")
+      .replace(/(?<!\\)μ/g, "$\\\\mu$")
+      .replace(/(?<!\\)ρ/g, "$\\\\rho$")
+      .replace(/(?<!\\)σ/g, "$\\\\sigma$")
+      .replace(/(?<!\\)τ/g, "$\\\\tau$")
+      .replace(/(?<!\\)φ/g, "$\\\\varphi$")
+      .replace(/(?<!\\)ψ/g, "$\\\\psi$")
+      .replace(/(?<!\\)ω/g, "$\\\\omega$")
+      .replace(/(?<!\\)Δ/g, "$\\\\Delta$")
+      .replace(/(?<!\\)Σ/g, "$\\\\Sigma$")
+      .replace(/(?<!\\)Ω/g, "$\\\\Omega$");
   }
 
   /**
@@ -1831,15 +1831,10 @@
       if (!hasIdentityContext) isIdentityQuestion = false;
     }
     if (isIdentityQuestion) {
-      var aiReply = addMessageData("assistant", "我是灵知，请问有什么可以帮你的？");
-      var aiMsgDiv = document.createElement("div");
-      aiMsgDiv.className = "message ai";
-      aiMsgDiv.dataset.msgId = aiReply.id;
-      aiMsgDiv.innerHTML = '<div class="msg-bubble">' + renderContent("我是灵知，请问有什么可以帮你的？") + "</div>";
-      var bubbleForId = aiMsgDiv.querySelector(".msg-bubble");
+      var identityText = "我是灵知，请问有什么可以帮你的？";
+      var aiReply = addMessageData("assistant", identityText);
+      var aiMsgDiv = createMessageElement(aiReply);
       chatMessages.appendChild(aiMsgDiv);
-      appendActions(bubbleForId, aiMsgDiv, "我是灵知，请问有什么可以帮你的？");
-      attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
       scrollToBottom(true);
       saveChatHistory();
       toggleSendButton(false);
