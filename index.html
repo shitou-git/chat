@@ -2716,7 +2716,10 @@
     var chatTitleLink = document.getElementById("chatTitleLink");
     if (chatTitleLink) {
       chatTitleLink.addEventListener("click", function () {
-        location.reload();
+        // 加时间戳绕过 SW 缓存，确保加载最新代码
+        var url = new URL(window.location.href);
+        url.searchParams.set("_t", Date.now());
+        window.location.href = url.toString();
       });
     }
 
@@ -2881,11 +2884,17 @@
                   var btn = document.getElementById("chatUpdateBtn");
                   var close = document.getElementById("chatUpdateClose");
                   if (bar) bar.classList.add("show");
-                  if (btn) btn.addEventListener("click", function () { location.reload(); });
+                  if (btn) btn.addEventListener("click", function () {
+                    var u = new URL(window.location.href);
+                    u.searchParams.set("_t", Date.now());
+                    window.location.href = u.toString();
+                  });
                   if (close) close.addEventListener("click", function () { bar.classList.remove("show"); });
                 }
               });
             });
+            // 每次页面加载主动检查新版本（不依赖浏览器自动检测）
+            reg.update();
         })
         .catch(function (err) {
           console.warn("[PWA] Service Worker 注册失败：", err);
