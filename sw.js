@@ -6,14 +6,14 @@
  * - API 请求：仅网络，不缓存
  * ============================================================ */
 
-const CACHE_VERSION = "lingzhi-v12";
+const CACHE_VERSION = "lingzhi-v13";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./icon.svg",
-  "./icon-192.svg",
-  "./icon-512.svg",
+  "./Z.webp",
+  "./icon-192.webp",
+  "./icon-512.webp",
   "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css",
   "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js",
 ];
