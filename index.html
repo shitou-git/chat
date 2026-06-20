@@ -336,34 +336,8 @@
     border-bottom-left-radius: 4px;
     width: 100%;
   }
-  /* 重试按钮：AI 回复完成后，显示在消息气泡右下角 */
-  .ai-retry-btn {
-    position: absolute;
-    right: 6px;
-    bottom: -4px;
-    background: transparent;
-    border: none;
-    padding: 4px 8px;
-    font-size: 0.85rem;
-    color: var(--c-muted);
-    cursor: pointer;
-    border-radius: 12px;
-    transition: background 0.15s, color 0.15s;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .ai-retry-btn:hover {
-    background: var(--c-primary-soft);
-    color: var(--c-primary);
-  }
-  .ai-retry-btn:active {
-    transform: scale(0.95);
-  }
-  /* 消息气泡作为重试按钮定位容器 */
-  .message.ai .msg-bubble {
-    position: relative;
-  }
+  /* AI 消息气泡：作为潜在绝对定位容器（position:relative 无视觉影响） */
+  .message.ai .msg-bubble { position: relative; }
   /* 文本选择模式：恢复系统文字选框，便于自由拖选复制 */
   .msg-bubble.is-text-select-mode {
     user-select: text;
@@ -1386,8 +1360,8 @@
    * DOM 渲染
    * ================================================================ */
 
-  /** 给气泡绑定长按/右键操作菜单 */
-  function attachLongPressToBubble(bubble, msgDiv, msg) {
+  /** 给气泡绑定长按/右键操作菜单（onRetry 可选：AI 消息的重新回答） */
+  function attachLongPressToBubble(bubble, msgDiv, msg, onRetry) {
     var longPressTimer = null;
     var startX = 0;
     var startY = 0;
@@ -1408,13 +1382,12 @@
     }
 
     function startLongPress(e) {
-      // 文本选择模式：跳过自定义菜单，交给系统原生文本选择
       if (inTextSelectMode()) return;
       startX = getClientX(e);
       startY = getClientY(e);
       longPressTimer = setTimeout(function () {
         if (navigator.vibrate) navigator.vibrate(15);
-        showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
+        showMsgActionMenu(msgDiv, bubble, msg, startX, startY, onRetry);
       }, 500);
     }
 
@@ -1441,7 +1414,7 @@
     bubble.addEventListener("contextmenu", function (e) {
       if (inTextSelectMode()) return;
       e.preventDefault();
-      showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
+      showMsgActionMenu(msgDiv, bubble, msg, startX, startY, onRetry);
     });
     bubble.addEventListener("mousedown", startLongPress);
     bubble.addEventListener("mouseup", cancelLongPress);
@@ -1512,7 +1485,7 @@
     }, 50);
   }
 
-  function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
+  function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY, onRetry) {
     hideMsgActionMenu();
 
     var menu = document.createElement("div");
@@ -1522,8 +1495,12 @@
     var items = [
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
-      { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
+    // 仅 AI 消息显示"重新回答"
+    if (onRetry && msg.role === "assistant") {
+      items.push({ icon: "🔄", label: "重新回答", action: onRetry });
+    }
+    items.push({ icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } });
 
     for (var i = 0; i < items.length; i++) {
       if (i > 0) {
@@ -1862,46 +1839,56 @@
       } catch (e) {
         rendered = "";
       }
-      // renderContent 返回空或比原文明显短时，回退为纯文本
       if (!rendered || rendered.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length <
           textForBubble.replace(/\s+/g, "").length * 0.5) {
         bubble.innerHTML = escapeHtml(textForBubble).replace(/\n/g, "<br>");
       } else {
         bubble.innerHTML = rendered;
       }
-      // 追加重试按钮（右下角）
-      var retryBtn = document.createElement("button");
-      retryBtn.type = "button";
-      retryBtn.className = "ai-retry-btn";
-      retryBtn.innerHTML = "🔄 重新回答";
-      retryBtn.title = "让 AI 重新回答最近一个用户问题";
-      retryBtn.addEventListener("click", function () {
-        // 1. 从 chatData 中找到最近一条用户消息的文本
-        var msgs = chatData();
-        var lastUserText = null;
-        for (var i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i].role === "user") { lastUserText = msgs[i].content; break; }
-        }
-        if (!lastUserText) return;
 
-        // 2. 删除本条 AI 消息（数据 + DOM）
-        var curId = parseInt(aiMsgDiv.dataset.msgId, 10);
-        if (curId) removeMessageData(curId);
-        // 同时删除自动续答时追加的其它 assistant 消息
-        var currentSession = currentSession();
-        if (currentSession) {
-          // 只保留用户消息 + 本次之前的 assistant 消息（以最后一条用户消息为分界）
-          var lastUserIdx = -1;
-          for (var j = 0; j < currentSession.messages.length; j++) {
-            if (currentSession.messages[j].role === "user") lastUserIdx = j;
-          }
-          if (lastUserIdx >= 0) {
-            currentSession.messages = currentSession.messages.slice(0, lastUserIdx + 1);
-          }
-        }
-        aiMsgDiv.remove();
+      // "重新回答" 回调：删除本条 AI 消息及其之后所有 assistant 消息，重新请求
+      var onRetry = function () {
+        var session = currentSession();
+        if (!session) return;
+        var msgs = session.messages;
 
-        // 3. 创建新 AI 消息气泡 + 重新请求
+        // 找到最后一条用户消息的下标
+        var lastUserIdx = -1;
+        for (var k = msgs.length - 1; k >= 0; k--) {
+          if (msgs[k].role === "user") { lastUserIdx = k; break; }
+        }
+        if (lastUserIdx < 0) return;
+
+        // 截掉最后一条用户消息之后的所有 assistant 消息（含自动续答产生的多条）
+        session.messages = msgs.slice(0, lastUserIdx + 1);
+
+        // 同时删除 DOM 中这些 assistant 消息（从最后一条 user 消息之后的所有 .message.ai）
+        // 找到最后一条 user 消息在 DOM 中的位置
+        var lastUserMsgDiv = null;
+        var allMsgs = chatMessages.querySelectorAll(".message");
+        for (var m = allMsgs.length - 1; m >= 0; m--) {
+          if (allMsgs[m].classList.contains("user")) { lastUserMsgDiv = allMsgs[m]; break; }
+        }
+        // 删除 lastUserMsgDiv 之后的所有 AI 消息 DOM
+        if (lastUserMsgDiv) {
+          var next = lastUserMsgDiv.nextSibling;
+          while (next) {
+            var toRemove = next;
+            next = next.nextSibling;
+            if (toRemove.nodeType === 1 && toRemove.classList && toRemove.classList.contains("ai")) {
+              toRemove.remove();
+            } else if (toRemove.nodeType === 1 && toRemove.classList && toRemove.classList.contains("message") && toRemove.classList.contains("ai")) {
+              toRemove.remove();
+            } else if (toRemove.nodeType === 3 && !toRemove.textContent.trim()) {
+              toRemove.remove(); // 清理空文本节点
+            }
+          }
+        } else {
+          // 兜底：若没找到 user DOM 节点，直接删掉本条 aiMsgDiv
+          aiMsgDiv.remove();
+        }
+
+        // 创建新的 AI 消息气泡
         var newAiMsgDiv = document.createElement("div");
         newAiMsgDiv.className = "message ai";
         newAiMsgDiv.innerHTML =
@@ -1914,29 +1901,25 @@
         chatMessages.appendChild(newAiMsgDiv);
         var newBubble = newAiMsgDiv.querySelector(".msg-bubble");
 
-        // 4. 用当前的 sendMessage 中声明的流式处理函数，重新跑一次
-        //    通过闭包共享 fullContent/pendingText/finishReason/flushStreamAppend/finalRender 等状态
-        //    简单做法：重新初始化状态变量后复用内层函数
+        // 重置流式状态，并把 bubble/aiMsgDiv 指向新节点
         fullContent = "";
         pendingText = "";
         incompleteFormulaTail = "";
         finishReason = null;
         lastAppendTs = 0;
         firstTokenTs = 0;
-        // 把 bubble/aiMsgDiv 绑定到新的节点
         bubble = newBubble;
         aiMsgDiv = newAiMsgDiv;
         hasClearedPlaceholder = false;
 
-        // 5. 直接跑自动续答循环
+        // 重新发起请求（支持自动续答）
         runAutoContinueLoop();
 
         scrollToBottom(true);
-      });
-      bubble.appendChild(retryBtn);
+      };
 
-      appendActions(bubble, aiMsgDiv, textForBubble);
-      if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
+      appendActions(bubble, aiMsgDiv, textForBubble, onRetry);
+      if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach, onRetry);
       autoScaleKatex(bubble);
       // 流结束后不滚动到底部，由用户自行操作
     }
@@ -2186,9 +2169,9 @@
     // 启动自动续答循环
     await runAutoContinueLoop();
   }
-  /** 向 bubble 追加长按操作菜单绑定（移除了原 hover 显示的 × 删除按钮） */
-  function appendActions(bubble, msgDiv, content) {
-    attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content });
+  /** 向 bubble 追加长按操作菜单绑定（onRetry 可选：AI 消息的重新回答） */
+  function appendActions(bubble, msgDiv, content, onRetry) {
+    attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content }, onRetry);
   }
 
   /** 构造请求——密钥运行时解密，用后不驻留变量 */
