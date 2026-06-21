@@ -1950,7 +1950,7 @@
     var items = [
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
-      { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); }
+      { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
 
     if (msg.role === "assistant" || msg.role === "ai") {
