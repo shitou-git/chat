@@ -2423,127 +2423,81 @@
 
     abortController = new AbortController();
 
-    // ===== 流式渲染：O(n) 增量渲染，流式期间即可看到表格、加粗、代码块、列表
-    var fullContent = "";                 // 完整原文（保存用）
-    var stableText = "";                  // 已成功渲染并追加到 bubble 的原始文本
-    var pendingText = "";                 // 尚未追加到 DOM 的累积文本
-    var lastAppendTs = 0;                 // 上次 DOM 追加时间（节流用）
-    var lastUserQuestion = text;          // 当前轮的用户问题（用于 fallback 生成相关问题
-    var APPEND_THROTTLE_MS = 40;          // DOM 追加间隔
-    var firstTokenTs = 0;                 // 首个 token 到达时间
+    // ===== 流式渲染：全量重渲染确保 markdown 结构正确 + 自适应节流 + 未闭合标记截断
+    // 增量 renderContent(片段) 是错误的：markdown 解析器需要看到完整的表头/分隔符/数据行
+    // 才能把 | table | 识别为表格。因此必须对 fullContent 整体渲染，但通过自适应节流
+    // 控制 DOM 写入频率，并在每次渲染前截掉未闭合的 $/$$/``` 避免闪烁。
+    var fullContent = "";
+    var pendingText = "";
+    var lastAppendTs = 0;
+    var lastUserQuestion = text;
+    var MIN_THROTTLE_MS = 30;                // 短内容快速刷新
+    var MAX_THROTTLE_MS = 80;                // 长内容降低渲染频率
+    var firstTokenTs = 0;
     var t0 = Date.now();
-    var AUTO_SCROLL_LINE_LIMIT = 12;      // 前 N 行跟随滚动，之后停止
-    var hasClearedPlaceholder = false;    // 是否已清掉"正在思考"
-    var incompleteTail = "";              // 截下来的不完整段（下次 flush 再处理
+    var AUTO_SCROLL_LINE_LIMIT = 12;
+    var hasClearedPlaceholder = false;
 
-    // 按换行粗略估算行数
     function estimateLineCount(text) {
       if (!text) return 0;
       var m = text.match(/\n/g);
       return (m ? m.length : 0) + 1;
     }
 
-    // 在文本末尾找到安全截断点：不在代码块/公式中间切断
-    // 返回截断点位置（0..text.length
-    function findSafeCutPoint(text) {
-      if (!text) return 0;
-      var len = text.length;
-      var safeCut = len;
-
-      // 1. 代码块 ``` 是否未闭合
-      var codeCount = 0;
-      var searchFrom = 0;
-      var idx;
-      while ((idx = text.indexOf("```", searchFrom)) !== -1) {
-        codeCount++;
-        searchFrom = idx + 3;
-      }
-      if (codeCount % 2 === 1) {
-        var lastTick = text.lastIndexOf("```");
-        if (lastTick > 0 && lastTick < safeCut) safeCut = lastTick;
-      }
-
-      // 2. $$ 块级公式未闭合
-      searchFrom = 0;
-      var ddCount = 0;
-      while ((idx = text.indexOf("$$", searchFrom)) !== -1) {
-        ddCount++;
-        searchFrom = idx + 2;
-      }
-      if (ddCount % 2 === 1) {
-        var lastDD = text.lastIndexOf("$$");
-        if (lastDD > 0 && lastDD < safeCut) safeCut = lastDD;
-      }
-
-      // 3. 单个 $ 公式未闭合（排除 $$ 中的 $
-      var singleCount = 0;
-      var i = 0;
-      while (i < len) {
-        if (text.substr(i, 2) === "$$") { i += 2; continue; }
-        if (text.charAt(i) === "$") singleCount++;
-        i++;
-      }
-      if (singleCount % 2 === 1) {
-        var lastSingle = text.lastIndexOf("$");
-        if (lastSingle > 0 && lastSingle < safeCut) {
-          var prevChar = lastSingle > 0 ? text.charAt(lastSingle - 1) : "";
-          var nextChar = lastSingle + 1 < len ? text.charAt(lastSingle + 1) : "";
-          if (prevChar !== "$" && nextChar !== "$") {
-            if (text.indexOf("$", lastSingle + 1) === -1) {
-              safeCut = lastSingle;
-            }
-          }
-        }
-      }
-
-      return safeCut;
-    }
-
     function flushStreamAppend(force) {
       var nowTs = Date.now();
-      if (!force && lastAppendTs > 0 && nowTs - lastAppendTs < APPEND_THROTTLE_MS) return;
-      if (!pendingText && !incompleteTail) return;
+      // 自适应节流：内容越长，节流越宽松
+      var throttle = Math.min(MAX_THROTTLE_MS,
+                              MIN_THROTTLE_MS + Math.floor(fullContent.length / 500) * 10);
+      if (!force && lastAppendTs > 0 && nowTs - lastAppendTs < throttle) return;
+      if (!pendingText) return;
 
       if (!hasClearedPlaceholder) {
         bubble.innerHTML = "";
         hasClearedPlaceholder = true;
       }
 
-      // 合并活动段：上次截下的不完整段 + 本次新增文本
-      var raw = incompleteTail + pendingText;
-
-      // 找到安全截断点
-      var safeCut = findSafeCutPoint(raw);
-
-      // [0..safeCut] 走 renderContent 渲染并 append
-      var toRender = raw.substring(0, safeCut);
-      incompleteTail = raw.substring(safeCut);
-
-      if (toRender.length > 0) {
-        try {
-          var html = renderContent(toRender);
-          if (html) {
-            var host = document.createElement("div");
-            host.innerHTML = html;
-            while (host.firstChild) {
-              bubble.appendChild(host.firstChild);
-            }
-          }
-        } catch (e) {
-          // 兜底：纯文本渲染
-          var plain = document.createElement("div");
-          plain.innerHTML = escapeHtml(toRender).replace(/\n/g, "<br>");
-          while (plain.firstChild) {
-            bubble.appendChild(plain.firstChild);
+      // 1. 先截掉未配对的 $ 开头片段，避免流式期间显示 $xxx 字面量
+      var textForRender = fullContent;
+      var lastDollarIdx = textForRender.lastIndexOf("$");
+      if (lastDollarIdx !== -1) {
+        var afterLastDollar = textForRender.substring(lastDollarIdx + 1);
+        if (afterLastDollar.indexOf("$") === -1) {
+          var prevChar = lastDollarIdx > 0 ? textForRender.charAt(lastDollarIdx - 1) : "";
+          var nextChar = lastDollarIdx + 1 < textForRender.length ? textForRender.charAt(lastDollarIdx + 1) : "";
+          if (nextChar === "$") {
+            // $$ 开头但无闭合 → 截掉
+            textForRender = textForRender.substring(0, lastDollarIdx);
+          } else if (prevChar !== "$" && nextChar !== "$") {
+            // 单个 $ 开头且无闭合 → 截掉
+            textForRender = textForRender.substring(0, lastDollarIdx);
           }
         }
-        stableText += toRender;
+      }
+
+      // 2. 截掉未闭合的 ``` 代码块（避免流式期间显示 ``` 字面量）
+      var tickCount = 0;
+      var searchFrom = 0;
+      var ti;
+      while ((ti = textForRender.indexOf("```", searchFrom)) !== -1) {
+        tickCount++;
+        searchFrom = ti + 3;
+      }
+      if (tickCount % 2 === 1) {
+        var lastTick = textForRender.lastIndexOf("```");
+        if (lastTick > 0) textForRender = textForRender.substring(0, lastTick);
+      }
+
+      // 3. 全量渲染 — innerHTML = 是浏览器高度优化的路径，远快于多次 appendChild
+      try {
+        bubble.innerHTML = renderContent(textForRender);
+      } catch (e) {
+        bubble.innerHTML = escapeHtml(textForRender).replace(/\n/g, "<br>");
       }
 
       pendingText = "";
       lastAppendTs = nowTs;
 
-      // 前 N 行跟随滚动（仅在流式增量阶段生效，流结束后的强制 flush 不滚动
       if (!force && estimateLineCount(fullContent) <= AUTO_SCROLL_LINE_LIMIT) {
         scrollToBottom(false);
       }
