@@ -1569,11 +1569,13 @@
       }
     }
 
-    // 6. 去重 + 过滤
+    // 6. 去重 + 过滤 + 去掉编号前缀
     var seen = {};
     var uniqueKeywords = [];
     for (var ki = 0; ki < keywords.length; ki++) {
       var kw = keywords[ki].replace(/[。，,、.：:()（）「」\[\]【】"'`#!！@\$%\^\*]/g, "").trim();
+      // 去掉开头的"1.""2、""3 "等列表编号（1-2 位数字，避免误删"1958年"这种年份）
+      kw = kw.replace(/^\d{1,2}[\s\.\、\)\．:：]+/, "").trim();
       if (!kw || kw.length < 2 || kw.length > 20) continue;
       if (STOP_WORDS[kw]) continue;
       if (seen[kw]) continue;
