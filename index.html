@@ -506,8 +506,49 @@
     padding: 1px 5px;
     border-radius: 4px;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    font-size: 0.85em;
+    font-size: 0.82rem;
   }
+  /* Markdown 表格 */
+  .md-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 0.9rem;
+    background: var(--c-surface);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+  .md-table thead {
+    background: var(--c-primary-soft);
+  }
+  .md-table th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--c-primary);
+    border-bottom: 1px solid var(--c-border);
+    white-space: nowrap;
+  }
+  .md-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--c-border);
+    color: var(--c-text);
+    vertical-align: top;
+  }
+  .md-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .md-table tbody tr:nth-child(even) {
+    background: rgba(0, 0, 0, 0.03);
+  }
+  body.is-dark .md-table tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .md-table th[align="center"],
+  .md-table td[align="center"] { text-align: center; }
+  .md-table th[align="right"],
+  .md-table td[align="right"] { text-align: right; }
 
   /* ========== 输入指示器 ========== */
   .typing-indicator {
@@ -1432,10 +1473,66 @@
 
   /** 渲染纯文本部分：escape → Markdown */
   function renderText(text) {
-    // 先 escape 防 XSS
-    var html = escapeHtml(text);
+    // ---------- 预处理：提取 Markdown 表格为占位符 ----------
+    // 表格块必须有：标题行 + 分隔行（|---|---|）+ 至少 1 行数据
+    var tables = [];
+    var safeText = text;
 
-    // 行内代码 `...`（在 Markdown 格式化之前处理，避免内容被其他规则破坏）
+    if (/\|/.test(safeText) && /\n\s*\|[-:\s|]+\|\s*\n/.test(safeText)) {
+      var tableRegex = /(?:^|\n)((?:\|[^\n]*\|\n){1,}(?:\|[-:\s|]+\|\n)(?:\|[^\n]*\|\n?)+)/gm;
+      safeText = safeText.replace(tableRegex, function (fullMatch, tableBlock) {
+        // 按行拆
+        var lines = tableBlock.trim().split(/\n+/).filter(function (l) {
+          return /\|\s*$/.test(l) || /^\s*\|/.test(l);
+        });
+        if (lines.length < 3) return fullMatch;
+
+        // 解析表头对齐方式（从分隔行）
+        var sepLine = lines[1] || "";
+        var aligns = sepLine.split("|").slice(1, -1).map(function (cell) {
+          var c = (cell || "").trim();
+          var left = /^:/.test(c);
+          var right = /:$/.test(c);
+          if (left && right) return "center";
+          if (right) return "right";
+          if (left) return "left";
+          return "";
+        });
+
+        // 渲染表头
+        var headerCells = lines[0].split("|").slice(1, -1);
+        var theadHtml = "<thead><tr>";
+        for (var h = 0; h < headerCells.length; h++) {
+          var a = aligns[h] || "";
+          var alignAttr = a ? ' align="' + a + '"' : "";
+          theadHtml += "<th" + alignAttr + ">" + escapeHtml((headerCells[h] || "").trim()) + "</th>";
+        }
+        theadHtml += "</tr></thead>";
+
+        // 渲染数据行
+        var tbodyHtml = "<tbody>";
+        for (var r = 2; r < lines.length; r++) {
+          var cells = lines[r].split("|").slice(1, -1);
+          tbodyHtml += "<tr>";
+          for (var c = 0; c < cells.length; c++) {
+            var alignA = aligns[c] || "";
+            var alignAttr2 = alignA ? ' align="' + alignA + '"' : "";
+            tbodyHtml += "<td" + alignAttr2 + ">" + escapeHtml((cells[c] || "").trim()) + "</td>";
+          }
+          tbodyHtml += "</tr>";
+        }
+        tbodyHtml += "</tbody>";
+
+        var tIdx = tables.length;
+        tables.push('<table class="md-table">' + theadHtml + tbodyHtml + "</table>");
+        return "\n\x02TABLE" + tIdx + "\x02\n";
+      });
+    }
+
+    // ---------- 常规渲染 ----------
+    var html = escapeHtml(safeText);
+
+    // 行内代码 `...`
     var inlineCodes = [];
     html = html.replace(/`([^`]+)`/g, function (m, code) {
       var idx = inlineCodes.length;
@@ -1452,9 +1549,6 @@
     // 加粗
     html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 
-    // 单星号不转斜体（AI 常用 * 做乘法/列表，转斜体误伤太多）
-    // 保留原样
-
     // 无序列表
     html = html.replace(/^[-*]\s+/gm, "• ");
 
@@ -1467,6 +1561,11 @@
     // 还原行内代码
     html = html.replace(/\x01INLINE(\d+)\x01/g, function (m, idx) {
       return '<code class="code-inline">' + inlineCodes[parseInt(idx, 10)] + "</code>";
+    });
+
+    // 还原表格
+    html = html.replace(/\x02TABLE(\d+)\x02/g, function (m, idx) {
+      return tables[parseInt(idx, 10)] || "";
     });
 
     return html;
