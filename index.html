@@ -510,14 +510,17 @@
   }
   /* Markdown 表格 */
   .md-table {
-    width: 100%;
+    width: auto;
+    max-width: 100%;
     border-collapse: collapse;
     margin: 6px 0;
     font-size: 0.85rem;
     background: var(--c-surface);
     border-radius: 8px;
-    overflow: hidden;
+    overflow-x: auto;
+    display: block;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    -webkit-overflow-scrolling: touch;
   }
   .md-table thead {
     background: var(--c-primary-soft);
@@ -533,10 +536,18 @@
   .md-table td {
     padding: 5px 10px;
     border-bottom: 1px solid var(--c-border);
+    border-right: 1px solid var(--c-border);
     color: var(--c-text);
     vertical-align: middle;
     white-space: normal;
     word-break: break-word;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .md-table td:last-child,
+  .md-table th:last-child {
+    border-right: none;
   }
   .md-table tbody tr:last-child td {
     border-bottom: none;
