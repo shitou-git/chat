@@ -2543,15 +2543,31 @@
         hasClearedPlaceholder = true;
       }
 
-      // 把上次留下来的未配对 $ 片段和本次新文本合并
-      var combined = (incompleteFormulaTail || "") + (pendingText || "");
-      var html = renderIncremental(combined);
-      // renderIncremental 内部已更新 incompleteFormulaTail
+      // 用 renderContent 对 fullContent 全量重渲染（流式期间也能看到表格/加粗/代码块等）
+      // 为避免未闭合的 $ 显示为原始 $xxx，先截掉末尾未配对的 $ 开头片段
+      var textForRender = fullContent;
+      var lastDollarIdx = textForRender.lastIndexOf("$");
+      if (lastDollarIdx !== -1) {
+        var afterLastDollar = textForRender.substring(lastDollarIdx + 1);
+        // 如果 lastDollar 之后没有闭合 $，说明是未完成的公式 → 截掉
+        if (afterLastDollar.indexOf("$") === -1) {
+          // 再做一个检查：是 $$ 开头吗？$$ 也需要成对出现
+          var prevChar = lastDollarIdx > 0 ? textForRender.charAt(lastDollarIdx - 1) : "";
+          if (lastDollarIdx > 0 && textForRender.charAt(lastDollarIdx + 1) === "$") {
+            // 是 $$ —— 已截掉，等后续闭合
+            textForRender = textForRender.substring(0, lastDollarIdx);
+          } else if (prevChar !== "$") {
+            // 是单个 $ 开头且无闭合
+            textForRender = textForRender.substring(0, lastDollarIdx);
+          }
+        }
+      }
 
-      if (html) {
-        var host = document.createElement("div");
-        host.innerHTML = html;
-        while (host.firstChild) bubble.appendChild(host.firstChild);
+      try {
+        bubble.innerHTML = renderContent(textForRender);
+      } catch (e) {
+        // 兜底：纯文本渲染
+        bubble.innerHTML = escapeHtml(textForRender).replace(/\n/g, "<br>");
       }
       pendingText = "";
       lastAppendTs = nowTs;
