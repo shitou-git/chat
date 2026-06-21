@@ -298,6 +298,7 @@
     display: flex;
     max-width: 100%;
     width: 100%;
+    position: relative;
     animation: msgIn 0.3s ease;
   }
   @keyframes msgIn {
@@ -323,8 +324,9 @@
     -webkit-user-select: none;
     -webkit-touch-callout: none;
     -webkit-user-drag: none;
-    /* 限制重绘范围：每个气泡独立，不影响其他内容 */
-    contain: layout paint;
+    /* 限制重绘范围，但允许内容（右上角喇叭）溢出 */
+    contain: layout style;
+    overflow: visible;
   }
   .message.user .msg-bubble {
     background: var(--c-primary-soft);
@@ -352,8 +354,8 @@
   /* AI 消息气泡右上角的喇叭（朗读）按钮 */
   .speak-btn {
     position: absolute;
-    top: -10px;
-    right: -10px;
+    top: -12px;
+    right: -12px;
     width: 32px;
     height: 32px;
     display: inline-flex;
@@ -391,9 +393,9 @@
   @media (hover: none) {
     .speak-btn { opacity: 0.95; }
   }
-  /* 鼠标设备：hover 气泡时显示 */
+  /* 鼠标设备：hover 消息行时显示 */
   @media (hover: hover) {
-    .message.ai .msg-bubble:hover .speak-btn { opacity: 0.95; }
+    .message.ai:hover .speak-btn { opacity: 0.95; }
   }
 
   /* ========== 长按气泡弹出菜单 ========== */
