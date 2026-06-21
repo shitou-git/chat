@@ -2423,17 +2423,18 @@
 
     abortController = new AbortController();
 
-    // ===== 流式渲染：流式期间只追加纯文本，流结束后一次性做 markdown/latex 渲染 =====
+    // ===== 流式渲染：O(n) 增量渲染，流式期间即可看到表格、加粗、代码块、列表
     var fullContent = "";                 // 完整原文（保存用）
+    var stableText = "";                  // 已成功渲染并追加到 bubble 的原始文本
     var pendingText = "";                 // 尚未追加到 DOM 的累积文本
     var lastAppendTs = 0;                 // 上次 DOM 追加时间（节流用）
-    var lastUserQuestion = text;          // 当前轮的用户问题（用于 fallback 生成相关问题）
-    var APPEND_THROTTLE_MS = 40;          // DOM 追加间隔（ms）——从 80 调小为 40，更新更灵敏
+    var lastUserQuestion = text;          // 当前轮的用户问题（用于 fallback 生成相关问题
+    var APPEND_THROTTLE_MS = 40;          // DOM 追加间隔
     var firstTokenTs = 0;                 // 首个 token 到达时间
     var t0 = Date.now();
     var AUTO_SCROLL_LINE_LIMIT = 12;      // 前 N 行跟随滚动，之后停止
     var hasClearedPlaceholder = false;    // 是否已清掉"正在思考"
-    var incompleteFormulaTail = "";       // 未配对的 $ 开头的片段，留到下次再处理
+    var incompleteTail = "";              // 截下来的不完整段（下次 flush 再处理
 
     // 按换行粗略估算行数
     function estimateLineCount(text) {
@@ -2442,137 +2443,107 @@
       return (m ? m.length : 0) + 1;
     }
 
-    // 流式阶段：对已完整的公式用 KaTeX 直接渲染，其他文本纯文本追加
-    // 末尾未配对的 $ 片段保留到下次再处理，避免公式被拆成两半输出
-    function renderIncremental(text) {
-      if (!text) return "";
-      var result = "";
-      var pos = 0;
-      var hasKatex = typeof katex !== "undefined";
+    // 在文本末尾找到安全截断点：不在代码块/公式中间切断
+    // 返回截断点位置（0..text.length
+    function findSafeCutPoint(text) {
+      if (!text) return 0;
       var len = text.length;
-      // 检查末尾是否存在未配对的 $（可能是公式的开始但未结束）
-      // 从末尾回溯，找到最后一个 $，如果其后的内容无法构成配对，就把从那个 $ 开始的部分截下来留到下次
-      var tailStart = -1;
-      var lastDollar = text.lastIndexOf("$");
-      if (lastDollar !== -1) {
-        // 检查从 lastDollar 起是否能形成完整公式
-        if (lastDollar === len - 1) {
-          tailStart = lastDollar; // 最后一个字符就是 $，未配对
-        } else {
-          // lastDollar 之后：看看有没有另一个 $ 作为闭合
-          var closingAfter = text.indexOf("$", lastDollar + 1);
-          // 也检查是否是 $$
-          var isDoubleDollar = (lastDollar + 1 < len && text.charAt(lastDollar + 1) === "$");
-          if (closingAfter === -1) {
-            // 末尾没有闭合 $，保留整段
-            tailStart = lastDollar;
-          } else if (isDoubleDollar && closingAfter === lastDollar + 1) {
-            // $$ 开头，但后面没有另一个 $$，也保留
-            tailStart = lastDollar;
-          }
-        }
+      var safeCut = len;
+
+      // 1. 代码块 ``` 是否未闭合
+      var codeCount = 0;
+      var searchFrom = 0;
+      var idx;
+      while ((idx = text.indexOf("```", searchFrom)) !== -1) {
+        codeCount++;
+        searchFrom = idx + 3;
       }
-      var processEnd = (tailStart === -1) ? len : tailStart;
-      while (pos < processEnd) {
-        // 先尝试 $$...$$ 块级公式
-        if (pos + 1 < processEnd && text.substr(pos, 2) === "$$") {
-          var endIdx = text.indexOf("$$", pos + 2);
-          if (endIdx !== -1 && endIdx + 2 <= processEnd) {
-            var formula = text.substring(pos + 2, endIdx).trim();
-            if (formula && hasKatex) {
-              try {
-                var rendered = katex.renderToString(formula, { throwOnError: false, displayMode: true, output: "html" });
-                result += '<div class="katex-block">' + rendered + "</div>";
-              } catch (e) {
-                result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
-              }
-            } else {
-              result += '<code class="math-fallback">' + escapeHtml(formula) + "</code>";
+      if (codeCount % 2 === 1) {
+        var lastTick = text.lastIndexOf("```");
+        if (lastTick > 0 && lastTick < safeCut) safeCut = lastTick;
+      }
+
+      // 2. $$ 块级公式未闭合
+      searchFrom = 0;
+      var ddCount = 0;
+      while ((idx = text.indexOf("$$", searchFrom)) !== -1) {
+        ddCount++;
+        searchFrom = idx + 2;
+      }
+      if (ddCount % 2 === 1) {
+        var lastDD = text.lastIndexOf("$$");
+        if (lastDD > 0 && lastDD < safeCut) safeCut = lastDD;
+      }
+
+      // 3. 单个 $ 公式未闭合（排除 $$ 中的 $
+      var singleCount = 0;
+      var i = 0;
+      while (i < len) {
+        if (text.substr(i, 2) === "$$") { i += 2; continue; }
+        if (text.charAt(i) === "$") singleCount++;
+        i++;
+      }
+      if (singleCount % 2 === 1) {
+        var lastSingle = text.lastIndexOf("$");
+        if (lastSingle > 0 && lastSingle < safeCut) {
+          var prevChar = lastSingle > 0 ? text.charAt(lastSingle - 1) : "";
+          var nextChar = lastSingle + 1 < len ? text.charAt(lastSingle + 1) : "";
+          if (prevChar !== "$" && nextChar !== "$") {
+            if (text.indexOf("$", lastSingle + 1) === -1) {
+              safeCut = lastSingle;
             }
-            pos = endIdx + 2;
-            continue;
           }
         }
-        // 再尝试 $...$ 行内公式
-        if (text.charAt(pos) === "$") {
-          var endIdx2 = text.indexOf("$", pos + 1);
-          if (endIdx2 !== -1 && endIdx2 > pos + 1 && endIdx2 + 1 <= processEnd) {
-            var formula2 = text.substring(pos + 1, endIdx2).trim();
-            if (formula2 && hasKatex) {
-              try {
-                result += katex.renderToString(formula2, { throwOnError: false, displayMode: false, output: "html" });
-              } catch (e) {
-                result += '<code class="math-fallback">' + escapeHtml(formula2) + "</code>";
-              }
-            } else {
-              result += '<code class="math-fallback">' + escapeHtml(formula2) + "</code>";
-            }
-            pos = endIdx2 + 1;
-            continue;
-          }
-        }
-        // 普通文本：累计到下一个 $ 或 processEnd
-        var nextDollar = text.indexOf("$", pos + 1);
-        var segEnd;
-        if (nextDollar === -1 || nextDollar >= processEnd) {
-          segEnd = processEnd;
-        } else {
-          segEnd = nextDollar;
-        }
-        if (segEnd <= pos) segEnd = pos + 1;
-        var seg = text.substring(pos, segEnd);
-        result += escapeHtml(seg).replace(/\n/g, "<br>");
-        pos = segEnd;
       }
-      // 截下来的尾部留给下次 flush
-      if (tailStart !== -1) {
-        incompleteFormulaTail = text.substring(tailStart);
-      } else {
-        incompleteFormulaTail = "";
-      }
-      return result;
+
+      return safeCut;
     }
 
     function flushStreamAppend(force) {
       var nowTs = Date.now();
       if (!force && lastAppendTs > 0 && nowTs - lastAppendTs < APPEND_THROTTLE_MS) return;
-      if (!pendingText && !incompleteFormulaTail) return;
+      if (!pendingText && !incompleteTail) return;
 
       if (!hasClearedPlaceholder) {
         bubble.innerHTML = "";
         hasClearedPlaceholder = true;
       }
 
-      // 用 renderContent 对 fullContent 全量重渲染（流式期间也能看到表格/加粗/代码块等）
-      // 为避免未闭合的 $ 显示为原始 $xxx，先截掉末尾未配对的 $ 开头片段
-      var textForRender = fullContent;
-      var lastDollarIdx = textForRender.lastIndexOf("$");
-      if (lastDollarIdx !== -1) {
-        var afterLastDollar = textForRender.substring(lastDollarIdx + 1);
-        // 如果 lastDollar 之后没有闭合 $，说明是未完成的公式 → 截掉
-        if (afterLastDollar.indexOf("$") === -1) {
-          // 再做一个检查：是 $$ 开头吗？$$ 也需要成对出现
-          var prevChar = lastDollarIdx > 0 ? textForRender.charAt(lastDollarIdx - 1) : "";
-          if (lastDollarIdx > 0 && textForRender.charAt(lastDollarIdx + 1) === "$") {
-            // 是 $$ —— 已截掉，等后续闭合
-            textForRender = textForRender.substring(0, lastDollarIdx);
-          } else if (prevChar !== "$") {
-            // 是单个 $ 开头且无闭合
-            textForRender = textForRender.substring(0, lastDollarIdx);
+      // 合并活动段：上次截下的不完整段 + 本次新增文本
+      var raw = incompleteTail + pendingText;
+
+      // 找到安全截断点
+      var safeCut = findSafeCutPoint(raw);
+
+      // [0..safeCut] 走 renderContent 渲染并 append
+      var toRender = raw.substring(0, safeCut);
+      incompleteTail = raw.substring(safeCut);
+
+      if (toRender.length > 0) {
+        try {
+          var html = renderContent(toRender);
+          if (html) {
+            var host = document.createElement("div");
+            host.innerHTML = html;
+            while (host.firstChild) {
+              bubble.appendChild(host.firstChild);
+            }
+          }
+        } catch (e) {
+          // 兜底：纯文本渲染
+          var plain = document.createElement("div");
+          plain.innerHTML = escapeHtml(toRender).replace(/\n/g, "<br>");
+          while (plain.firstChild) {
+            bubble.appendChild(plain.firstChild);
           }
         }
+        stableText += toRender;
       }
 
-      try {
-        bubble.innerHTML = renderContent(textForRender);
-      } catch (e) {
-        // 兜底：纯文本渲染
-        bubble.innerHTML = escapeHtml(textForRender).replace(/\n/g, "<br>");
-      }
       pendingText = "";
       lastAppendTs = nowTs;
 
-      // 前 N 行跟随滚动（仅在流式增量阶段生效，流结束后的强制 flush 不滚动）
+      // 前 N 行跟随滚动（仅在流式增量阶段生效，流结束后的强制 flush 不滚动
       if (!force && estimateLineCount(fullContent) <= AUTO_SCROLL_LINE_LIMIT) {
         scrollToBottom(false);
       }
