@@ -1472,10 +1472,18 @@
     return html;
   }
 
+  /** 根据正文长度计算应该显示几条相关问题（1~3 条） */
+  function calcFollowUpCount(bodyText) {
+    var len = (bodyText || "").length;
+    if (len < 300) return 1;       // 短文：1 条
+    if (len < 800) return 2;       // 中等：2 条
+    return 3;                      // 长文：3 条
+  }
+
   /** 从 AI 回答中分离出正文与相关问题列表
    *  支持的格式（按检测优先级排列）：
    *    1. 含分隔符：一行以 "---相关问题" 或 "--- 相关问题" 或 "相关问题：" 等开头
-   *    2. 无分隔符 fallback：从末尾向前检测数字序号/问号前缀的连续行（至少 2 条）
+   *    2. 无分隔符 fallback：从末尾向前检测数字序号/问号前缀的连续行
    *  返回 { body: 纯正文不含问题行, questions: [问题文本...] }
    */
   function extractFollowUpQuestions(text) {
@@ -1536,42 +1544,43 @@
 
     if (separatorIdx !== -1) {
       bodyLines = rawLines.slice(0, separatorIdx);
+      var targetCount = calcFollowUpCount(bodyLines.join("\n"));
       var tailLines = rawLines.slice(separatorIdx + 1);
       for (var j = 0; j < tailLines.length; j++) {
         var q = isQuestionLine(tailLines[j]);
         if (q) questions.push(q);
-        if (questions.length >= 3) break;
+        if (questions.length >= targetCount) break;
       }
     } else {
-      // fallback：从末尾向前找"连续的"疑似问题行（至少 2 行，遇到非问题行停止）
-      // 注意：fallback 必须更严格，只有"看起来像问句"的才采用
-      // （因为正常回答里也可能有数字列表）
+      // fallback：从末尾向前找"连续的"疑似问题行
       var looksLikeQuestion = function (s) {
         if (!s) return false;
-        // 必须含问号，或含疑问词
         if (/[?？]/.test(s)) return true;
         if (/(什么|怎么|为什么|为何|如何|能不能|能否|是否|哪里|哪个|怎么|如何|谁|是不是|有没有|是否|呢|难道)/.test(s)) return true;
         return false;
       };
+      var bodyTextNoTail = rawLines.join("\n");
+      var targetCount2 = calcFollowUpCount(bodyTextNoTail);
       for (var k = rawLines.length - 1; k >= Math.max(0, rawLines.length - 10); k--) {
         var q2 = isQuestionLine(rawLines[k]);
         if (q2 && looksLikeQuestion(q2)) questions.unshift(q2);
         else if (questions.length > 0) break;
-        if (questions.length >= 3) break;
+        if (questions.length >= targetCount2) break;
       }
-      if (questions.length < 2) questions = [];
-      bodyLines = (questions.length > 0) ? rawLines.slice(0, rawLines.length - questions.length - 0) : rawLines;
+      // fallback 不再强制要求至少 2 条，1 条也接受
+      bodyLines = (questions.length > 0) ? rawLines.slice(0, rawLines.length - questions.length) : rawLines;
     }
 
     if (questions.length === 0) return emptyResult;
 
     // 清理末尾空行
     while (bodyLines.length && /^\s*$/.test(bodyLines[bodyLines.length - 1])) bodyLines.pop();
-    return { body: bodyLines.join("\n"), questions: questions.slice(0, 3) };
+    return { body: bodyLines.join("\n"), questions: questions };
   }
 
-  /** 【兜底方案】当 AI 没有按 prompt 输出相关问题时，基于回答内容自动生成 2~3 个追问
+  /** 【兜底方案】当 AI 没有按 prompt 输出相关问题时，基于回答内容自动生成追问
    *  策略：优先使用 markdown 中的标题/加粗词作为关键词，其次用高频词
+   *  条数：根据正文长度动态决定 1~3 条
    *  @param text         AI 回答的完整正文
    *  @param userQuestion 用户的原始问题（可选），用来提升相关性
    *  @return 问题文本数组
@@ -1579,6 +1588,9 @@
   function generateFallbackQuestions(text, userQuestion) {
     if (!text) return [];
     var keywords = [];
+
+    // 根据正文长度决定要生成几条（1~3）
+    var targetCount = calcFollowUpCount(text);
 
     // 停止词（结构性词汇、过于泛化、疑问词）
     var STOP_WORDS = {
@@ -1642,24 +1654,25 @@
       uniqueKeywords.push(kw);
     }
 
-    // 7. 基于关键词生成模板化追问（最多 3 个）
+    // 7. 基于关键词生成模板化追问（条数 = targetCount）
     var templates = [
       function (kw) { return "什么是" + kw + "？"; },
       function (kw) { return kw + "有什么实际应用？"; },
       function (kw) { return "如何理解" + kw + "？"; },
       function (kw) { return kw + "的核心是什么？"; },
-      function (kw) { return "关于" + kw + "能再详细说说吗？"; },
+      function (kw) { return "关于" + kw + "能举个例子吗？"; },
     ];
 
     var result = [];
-    for (var i = 0; i < Math.min(uniqueKeywords.length, 3); i++) {
+    var takeCount = Math.min(uniqueKeywords.length, targetCount);
+    for (var i = 0; i < takeCount; i++) {
       // 循环使用模板，避免相邻重复
       result.push(templates[i % templates.length](uniqueKeywords[i]));
     }
 
-    // 8. 如果关键词完全没找到 → 给出通用的 2 个追问
+    // 8. 如果关键词完全没找到 → 给出通用追问（1~2 条，视长度）
     if (result.length === 0) {
-      if (userQuestion && userQuestion.length < 40) {
+      if (targetCount >= 2 && userQuestion && userQuestion.length < 40) {
         var qTopic = userQuestion.replace(/[？?，。,.！!；;]/g, "").trim();
         if (qTopic.length > 0 && qTopic.length <= 20) {
           result.push("关于" + qTopic + "，能举个例子吗？");
@@ -1669,12 +1682,11 @@
           result.push("还有其他相关的吗？");
         }
       } else {
-        result.push("能举个具体例子吗？");
-        result.push("还有其他相关的吗？");
+        result.push("能再详细讲讲吗？");
       }
     }
 
-    return result.slice(0, 3);
+    return result.slice(0, targetCount);
   }
 
   /** 通用：在消息 DOM 末尾追加相关问题按钮（供 finalRender 和 createMessageElement 共用）
