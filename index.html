@@ -512,8 +512,8 @@
   .md-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 10px 0;
-    font-size: 0.9rem;
+    margin: 6px 0;
+    font-size: 0.85rem;
     background: var(--c-surface);
     border-radius: 8px;
     overflow: hidden;
@@ -523,7 +523,7 @@
     background: var(--c-primary-soft);
   }
   .md-table th {
-    padding: 10px 14px;
+    padding: 6px 10px;
     text-align: left;
     font-weight: 600;
     color: var(--c-primary);
@@ -531,10 +531,12 @@
     white-space: nowrap;
   }
   .md-table td {
-    padding: 9px 14px;
+    padding: 5px 10px;
     border-bottom: 1px solid var(--c-border);
     color: var(--c-text);
-    vertical-align: top;
+    vertical-align: middle;
+    white-space: normal;
+    word-break: break-word;
   }
   .md-table tbody tr:last-child td {
     border-bottom: none;
@@ -1499,13 +1501,23 @@
           return "";
         });
 
+        // 单元格内容处理：去掉换行，处理加粗/行内代码
+        var processCell = function (content) {
+          if (!content) return "";
+          var s = escapeHtml((content || "").trim())
+            .replace(/\s+/g, " ")           // 去掉换行和多余空格，合并为一个空格
+            .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")   // 加粗
+            .replace(/`([^`]+)`/g, '<code class="code-inline">$1</code>');  // 行内代码
+          return s;
+        };
+
         // 渲染表头
         var headerCells = lines[0].split("|").slice(1, -1);
         var theadHtml = "<thead><tr>";
         for (var h = 0; h < headerCells.length; h++) {
           var a = aligns[h] || "";
           var alignAttr = a ? ' align="' + a + '"' : "";
-          theadHtml += "<th" + alignAttr + ">" + escapeHtml((headerCells[h] || "").trim()) + "</th>";
+          theadHtml += "<th" + alignAttr + ">" + processCell(headerCells[h]) + "</th>";
         }
         theadHtml += "</tr></thead>";
 
@@ -1517,7 +1529,7 @@
           for (var c = 0; c < cells.length; c++) {
             var alignA = aligns[c] || "";
             var alignAttr2 = alignA ? ' align="' + alignA + '"' : "";
-            tbodyHtml += "<td" + alignAttr2 + ">" + escapeHtml((cells[c] || "").trim()) + "</td>";
+            tbodyHtml += "<td" + alignAttr2 + ">" + processCell(cells[c]) + "</td>";
           }
           tbodyHtml += "</tr>";
         }
