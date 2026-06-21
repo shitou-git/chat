@@ -2087,225 +2087,62 @@
     }
   }
 
-  /* ================================================================
-   * TTS 播报——三重兜底：Web Speech API → 腾讯云 TTS → 静默失败
-   * ================================================================ */
-
+  /** 使用浏览器 TTS 朗读文字；再次点击则停止 */
   var _currentSpeakBtn = null;
-  var _speakAudioEl = null;   // 腾讯云 TTS 用到的 <audio> 元素
-  var _ttsSecretId = null;
-  var _ttsSecretKey = null;
-  var _ttsLoaded = false;
-
-  /** 从 localStorage 加载腾讯云 TTS 密钥 */
-  function loadTtsKeys() {
-    try {
-      var raw = localStorage.getItem("_tts_keys");
-      if (!raw) return;
-      var keys = JSON.parse(raw);
-      _ttsSecretId = keys.id || "";
-      _ttsSecretKey = keys.key || "";
-    } catch (e) {}
-  }
-
-  /** 保存腾讯云 TTS 密钥（明文存 localStorage，仅作演示，生产环境建议加密） */
-  function saveTtsKeys(id, key) {
-    _ttsSecretId = id || "";
-    _ttsSecretKey = key || "";
-    try {
-      localStorage.setItem("_tts_keys", JSON.stringify({ id: _ttsSecretId, key: _ttsSecretKey }));
-    } catch (e) {}
-  }
-
-  /** 腾讯云 TTS API 调用（HMAC-SHA1 签名，纯前端无需后端） */
-  function cloudTts(text, onEnd, onError) {
-    if (!_ttsSecretId || !_ttsSecretKey) {
-      if (onError) onError("未配置腾讯云密钥");
-      return;
-    }
-    var appid = "1256123455"; // 腾讯云 TTS AppID（固定写死也可以）
-    var secretId = _ttsSecretId;
-    var secretKey = _ttsSecretKey;
-
-    var timestamp = Math.floor(Date.now() / 1000);
-    var expired = timestamp + 3600;
-
-    // 构造 SecretId&Expired 签名用的 plaintext
-    var plainText = "a=QCloud" + secretId + "&e=" + expired + "&t=" + timestamp + "&r=123456&f=&s=";
-    // HMAC-SHA1
-    var hmacObj = null;
-    try {
-      // 用 Web Crypto API（X5 不支持，建议 fallback）
-      var key = crypto.subtle.importKey(
-        "raw",
-        str2buf(secretKey),
-        { name: "HMAC", hash: "SHA-1" },
-        false,
-        ["sign"]
-      );
-      key.then(function (cryptoKey) {
-        return crypto.subtle.sign("HMAC", cryptoKey, str2buf(plainText));
-      }).then(function (sig) {
-          var b64 = b64Encode(new Uint8Array(sig));
-          var signature = b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-          var token = plainText + signature;
-          var voiceType = 0; // 0=女声，1=男声
-          var speed = 0;
-          var pitch = 0;
-          var vol = 0;
-          var url = "https://tts.cloud.tencent.com/stream" +
-            "?appid=" + appid +
-            "&timeout=5000" +
-            "&token=" + encodeURIComponent(token) +
-            "&text=" + encodeURIComponent(text.slice(0, 200)) +
-            "&voice_type=" + voiceType +
-            "&speed=" + speed +
-            "&pitch=" + pitch +
-            "&vol=" + vol +
-            "&aue=3"; // 3=mp3
-
-          var audio = new Audio(url);
-          _speakAudioEl = audio;
-          audio.onended = function () { _speakAudioEl = null; if (onEnd) onEnd(); };
-          audio.onerror = function (e) { _speakAudioEl = null; if (onError) onError(e); };
-          audio.play().catch(function (err) { _speakAudioEl = null; if (onError) onError(err); });
-        }).catch(function (err) { if (onError) onError(err); });
-    } catch (e) { if (onError) onError(e); }
-
-    function str2buf(s) {
-      var b = new Uint8Array(s.length);
-      for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
-      return b;
-    }
-    function b64Encode(arr) {
-      var s = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-      var r = "";
-      for (var i = 0; i < arr.length; i += 3) {
-        var t = (arr[i] << 16) | (arr[i + 1] || 0) << 8 | (arr[i + 2] || 0);
-        r += s[t >> 18] + s[(t >> 12) & 63] + (arr[i + 1] ? s[(t >> 6) & 63] : "=") + (arr[i + 2] ? s[t & 63] : "=");
-      }
-      return r;
-    }
-  }
-
-  /** Web Speech API 朗读（增强：延迟获取 voices 兼容微信 X5） */
-  function nativeTts(text, btnEl, onFallback) {
-    var synth = window.speechSynthesis;
-    if (!synth) { if (onFallback) onFallback(); return false; }
-
-    try {
-      var utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 1;
-      utter.pitch = 1;
-      utter.volume = 1;
-
-      var setVoice = function (voices) {
-        var zhVoice = null;
-        for (var i = 0; i < voices.length; i++) {
-          var lang = (voices[i].lang || "").toLowerCase();
-          if (lang.indexOf("zh") === 0 || lang.indexOf("cmn") === 0) { zhVoice = voices[i]; break; }
-        }
-        if (zhVoice) utter.voice = zhVoice;
-        else utter.lang = "zh-CN";
-      };
-
-      // X5 可能不触发 voiceschanged，直接先取一次
-      var voices = synth.getVoices();
-      if (voices && voices.length > 0) {
-        setVoice(voices);
-      } else {
-        // 延迟 500ms 再取（X5 懒加载 voices）
-        utter.lang = "zh-CN";
-        setTimeout(function () {
-          try {
-            var v2 = synth.getVoices();
-            if (v2 && v2.length > 0) setVoice(v2);
-          } catch (e) {}
-        }, 500);
-      }
-
-      utter.onend = function () {
-        if (btnEl) btnEl.classList.remove("is-speaking");
-        if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-      };
-      utter.onerror = function (e) {
-        if (btnEl) btnEl.classList.remove("is-speaking");
-        if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-        if (onFallback || (e.error && e.error !== "interrupted")) {
-          if (onFallback) onFallback();
-        }
-      };
-
-      if (btnEl) {
-        btnEl.classList.add("is-speaking");
-        _currentSpeakBtn = btnEl;
-      }
-      synth.speak(utter);
-      return true;
-    } catch (e) {
-      if (onFallback) onFallback();
-      return false;
-    }
-  }
-
-  /** 主播报入口：Web Speech → 腾讯云 TTS → 静默 */
   function speakText(plainText, btnEl) {
-    // 停止当前朗读
     var synth = window.speechSynthesis;
-    if (synth && synth.speaking && _currentSpeakBtn === btnEl) {
+    if (!synth) return;
+
+    // 正在朗读同一个按钮 → 停止
+    if (synth.speaking && _currentSpeakBtn === btnEl) {
       synth.cancel();
-      if (_speakAudioEl) { _speakAudioEl.pause(); _speakAudioEl = null; }
-      if (btnEl) btnEl.classList.remove("is-speaking");
-      _currentSpeakBtn = null;
       return;
     }
-    if (synth && synth.speaking) {
-      synth.cancel();
-    }
-    if (_speakAudioEl) {
-      _speakAudioEl.pause();
-      _speakAudioEl = null;
-    }
+
+    // 先停掉其他
+    if (synth.speaking) synth.cancel();
 
     var trimmed = (plainText || "").trim();
     if (!trimmed) return;
     if (trimmed.length > 2000) trimmed = trimmed.slice(0, 2000);
 
+    var utter = new SpeechSynthesisUtterance(trimmed);
+    utter.rate = 1;
+    utter.pitch = 1;
+    utter.volume = 1;
+
+    // 优先选择中文语音
+    try {
+      var voices = synth.getVoices() || [];
+      var zhVoice = null;
+      for (var i = 0; i < voices.length; i++) {
+        var lang = (voices[i].lang || "").toLowerCase();
+        if (lang.indexOf("zh") === 0 || lang.indexOf("cmn") === 0) { zhVoice = voices[i]; break; }
+      }
+      if (zhVoice) utter.voice = zhVoice;
+      if (!zhVoice) utter.lang = "zh-CN";
+    } catch (e) {}
+
     if (btnEl) {
       btnEl.classList.add("is-speaking");
       _currentSpeakBtn = btnEl;
     }
-
-    // Step 1：尝试 Web Speech API（自带 500ms 延迟兼容 X5）
-    var usedFallback = false;
-    var doFallback = function () {
-      if (usedFallback) return;
-      usedFallback = true;
-      // Step 2：尝试腾讯云 TTS
-      if (_ttsSecretId && _ttsSecretKey) {
-        cloudTts(trimmed, function () {
-          if (btnEl) btnEl.classList.remove("is-speaking");
-          if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-        }, function () {
-          // 腾讯云也失败 → 静默
-          if (btnEl) btnEl.classList.remove("is-speaking");
-          if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-        });
-      } else {
-        // 未配置腾讯云密钥 → 静默
-        if (btnEl) btnEl.classList.remove("is-speaking");
-        if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-      }
+    utter.onend = function () {
+      if (btnEl) btnEl.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
+    };
+    utter.onerror = function () {
+      if (btnEl) btnEl.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
     };
 
-    var ok = nativeTts(trimmed, btnEl, doFallback);
-    if (!ok) doFallback();
+    synth.speak(utter);
   }
 
   /** 给 AI 消息气泡的右上角附加一个喇叭按钮 */
   function attachSpeakButton(bubble, rawText) {
     if (!bubble) return;
-    if (!("speechSynthesis" in window) && !_ttsSecretId) return; // 两层都没有就跳过
+    if (!("speechSynthesis" in window)) return;
 
     var btn = document.createElement("button");
     btn.type = "button";
@@ -3130,7 +2967,6 @@
     });
 
     // ===== 初始化会话 =====
-    loadTtsKeys(); // 加载腾讯云 TTS 密钥
     loadSessions();
     if (sessions.length === 0) {
       createSession();
