@@ -352,8 +352,8 @@
   /* AI 消息气泡右上角的喇叭（朗读）按钮 */
   .speak-btn {
     position: absolute;
-    top: 6px;
-    right: 8px;
+    top: 4px;
+    right: 6px;
     width: 28px;
     height: 28px;
     display: inline-flex;
@@ -369,7 +369,8 @@
     transition: background 0.15s, color 0.15s, opacity 0.2s;
     padding: 0;
     line-height: 1;
-    z-index: 2;
+    z-index: 3;
+    pointer-events: auto;
   }
   .speak-btn:hover,
   .speak-btn:active {
@@ -388,10 +389,6 @@
   /* 鼠标设备：hover 气泡时显示 */
   @media (hover: hover) {
     .message.ai .msg-bubble:hover .speak-btn { opacity: 0.85; }
-  }
-  /* 气泡右侧预留空间，防止文字贴近喇叭按钮 */
-  .message.ai .msg-bubble {
-    padding-right: 44px;
   }
 
   /* ========== 长按气泡弹出菜单 ========== */
