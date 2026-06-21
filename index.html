@@ -1946,10 +1946,11 @@
     menu.setAttribute("aria-label", "消息操作");
     menu.setAttribute("tabindex", "-1");
 
-    // 菜单项：AI 消息额外提供"重新回答"
+    // 菜单项：复制 / 文本 / 删除 / 重新回答（AI 消息）
     var items = [
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
+      { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); }
     ];
 
     if (msg.role === "assistant" || msg.role === "ai") {
@@ -1959,12 +1960,6 @@
         action: function () { regenerateMessage(msgDiv, msg); }
       });
     }
-
-    items.push({
-      icon: "🗑",
-      label: "删除",
-      action: function () { confirmDeleteMessage(msgDiv); }
-    });
 
     var focusableItems = [];
     for (var i = 0; i < items.length; i++) {
