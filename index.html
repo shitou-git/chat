@@ -349,6 +349,51 @@
     outline-offset: 2px;
   }
 
+  /* AI 消息气泡右上角的喇叭（朗读）按钮 */
+  .speak-btn {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--c-muted);
+    font-size: 1rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: background 0.15s, color 0.15s, opacity 0.2s;
+    padding: 0;
+    line-height: 1;
+    z-index: 2;
+  }
+  .speak-btn:hover,
+  .speak-btn:active {
+    background: var(--c-primary-soft);
+    color: var(--c-primary);
+    opacity: 1;
+  }
+  .speak-btn.is-speaking {
+    color: var(--c-primary);
+    opacity: 1;
+  }
+  /* 移动端：默认显示，避免依赖 hover */
+  @media (hover: none) {
+    .speak-btn { opacity: 0.85; }
+  }
+  /* 鼠标设备：hover 气泡时显示 */
+  @media (hover: hover) {
+    .message.ai .msg-bubble:hover .speak-btn { opacity: 0.85; }
+  }
+  /* 气泡右侧预留空间，防止文字贴近喇叭按钮 */
+  .message.ai .msg-bubble {
+    padding-right: 44px;
+  }
+
   /* ========== 长按气泡弹出菜单 ========== */
   .msg-action-menu {
     position: fixed;
@@ -388,9 +433,6 @@
   }
   .msg-action-menu-item:focus {
     outline: none;
-  }
-  .msg-action-menu-item:focus-visible {
-    background: var(--c-primary-soft);
   }
   .msg-action-menu-item .icon {
     font-size: 1.1rem;
@@ -1839,6 +1881,7 @@
       autoScaleKatex(bubble);
       div.appendChild(bubble);
       attachLongPressToBubble(bubble, div, msg);
+      attachSpeakButton(bubble, bodyForBubble);
       renderFollowUpButtons(bubble, questions);
       return div;
     }
@@ -1942,9 +1985,6 @@
 
     var menu = document.createElement("div");
     menu.className = "msg-action-menu";
-    menu.setAttribute("role", "menu");
-    menu.setAttribute("aria-label", "消息操作");
-    menu.setAttribute("tabindex", "-1");
 
     // 菜单项：复制 / 文本 / 删除 / 重新回答（AI 消息）
     var items = [
@@ -1961,19 +2001,16 @@
       });
     }
 
-    var focusableItems = [];
     for (var i = 0; i < items.length; i++) {
       if (i > 0) {
         var divider = document.createElement("div");
         divider.className = "msg-action-menu-divider";
-        divider.setAttribute("role", "separator");
         menu.appendChild(divider);
       }
       var itemEl = document.createElement("button");
       itemEl.type = "button";
       itemEl.className = "msg-action-menu-item";
-      itemEl.setAttribute("role", "menuitem");
-      itemEl.innerHTML = '<span class="icon" aria-hidden="true">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
+      itemEl.innerHTML = '<span class="icon">' + items[i].icon + '</span><span>' + items[i].label + '</span>';
       (function (action, item) {
         item.addEventListener("click", function () {
           hideMsgActionMenu();
@@ -1981,24 +2018,7 @@
         });
       })(items[i].action, itemEl);
       menu.appendChild(itemEl);
-      focusableItems.push(itemEl);
     }
-
-    // 键盘：上下箭头在菜单项之间导航，Enter 激活，Esc 关闭
-    menu.addEventListener("keydown", function (e) {
-      var currentIdx = focusableItems.indexOf(document.activeElement);
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        var nextIdx = (currentIdx + 1) % focusableItems.length;
-        focusableItems[nextIdx].focus();
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        var prevIdx = (currentIdx - 1 + focusableItems.length) % focusableItems.length;
-        focusableItems[prevIdx].focus();
-      } else if (e.key === "Escape") {
-        hideMsgActionMenu();
-      }
-    });
 
     document.body.appendChild(menu);
 
@@ -2027,9 +2047,6 @@
     menu.style.left = Math.round(menuLeft) + "px";
     menu.style.top = Math.round(menuTop) + "px";
 
-    // 键盘用户：焦点移到第一个菜单项；触摸设备不自动聚焦避免误高亮
-    var isFinePointer = window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    if (isFinePointer && focusableItems[0]) focusableItems[0].focus();
     currentActionMenu = menu;
   }
 
@@ -2053,6 +2070,93 @@
       document.execCommand("copy");
       document.body.removeChild(ta);
     } catch (e) {}
+  }
+
+  /** 从 HTML 内容提取纯文本（供喇叭播报使用） */
+  function htmlToPlainText(html) {
+    try {
+      var tmp = document.createElement("div");
+      tmp.innerHTML = html || "";
+      return (tmp.textContent || tmp.innerText || "").replace(/\s+/g, " ").trim();
+    } catch (e) {
+      return String(html || "").replace(/<[^>]+>/g, "").trim();
+    }
+  }
+
+  /** 使用浏览器 TTS 朗读文字；再次点击则停止 */
+  var _currentSpeakBtn = null;
+  function speakText(plainText, btnEl) {
+    var synth = window.speechSynthesis;
+    if (!synth) return;
+
+    // 正在朗读同一个按钮 → 停止
+    if (synth.speaking && _currentSpeakBtn === btnEl) {
+      synth.cancel();
+      return;
+    }
+
+    // 先停掉其他
+    if (synth.speaking) synth.cancel();
+
+    var trimmed = (plainText || "").trim();
+    if (!trimmed) return;
+    if (trimmed.length > 2000) trimmed = trimmed.slice(0, 2000);
+
+    var utter = new SpeechSynthesisUtterance(trimmed);
+    utter.rate = 1;
+    utter.pitch = 1;
+    utter.volume = 1;
+
+    // 优先选择中文语音
+    try {
+      var voices = synth.getVoices() || [];
+      var zhVoice = null;
+      for (var i = 0; i < voices.length; i++) {
+        var lang = (voices[i].lang || "").toLowerCase();
+        if (lang.indexOf("zh") === 0 || lang.indexOf("cmn") === 0) { zhVoice = voices[i]; break; }
+      }
+      if (zhVoice) utter.voice = zhVoice;
+      if (!zhVoice) utter.lang = "zh-CN";
+    } catch (e) {}
+
+    if (btnEl) {
+      btnEl.classList.add("is-speaking");
+      _currentSpeakBtn = btnEl;
+    }
+    utter.onend = function () {
+      if (btnEl) btnEl.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
+    };
+    utter.onerror = function () {
+      if (btnEl) btnEl.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
+    };
+
+    synth.speak(utter);
+  }
+
+  /** 给 AI 消息气泡的右上角附加一个喇叭按钮 */
+  function attachSpeakButton(bubble, rawText) {
+    if (!bubble) return;
+    if (!("speechSynthesis" in window)) return;
+
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "speak-btn";
+    btn.title = "朗读";
+    btn.innerHTML = "🔊";
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var plain;
+      // 优先使用传入的原始纯文本；否则从气泡 DOM 中提取
+      if (typeof rawText === "string" && rawText.length > 0) {
+        plain = rawText;
+      } else {
+        plain = bubble.textContent || bubble.innerText || "";
+      }
+      speakText(plain, btn);
+    });
+    bubble.appendChild(btn);
   }
 
   /* ================================================================
@@ -2502,9 +2606,10 @@
       abortController = null;
     }
   }
-  /** 向 bubble 追加长按操作菜单绑定（移除了原 hover 显示的 × 删除按钮） */
+  /** 向 bubble 追加长按操作菜单绑定 + 右上角的朗读按钮 */
   function appendActions(bubble, msgDiv, content) {
     attachLongPressToBubble(bubble, msgDiv, { role: "assistant", content: content });
+    attachSpeakButton(bubble, content);
   }
 
   /** 构造请求——密钥运行时解密，用后不驻留变量 */
