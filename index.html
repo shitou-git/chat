@@ -352,43 +352,48 @@
   /* AI 消息气泡右上角的喇叭（朗读）按钮 */
   .speak-btn {
     position: absolute;
-    top: 4px;
-    right: 6px;
-    width: 28px;
-    height: 28px;
+    top: -10px;
+    right: -10px;
+    width: 32px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    color: var(--c-muted);
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 50%;
+    color: var(--c-primary);
     font-size: 1rem;
     cursor: pointer;
     opacity: 0;
-    transition: background 0.15s, color 0.15s, opacity 0.2s;
+    transition: background 0.15s, color 0.15s, opacity 0.2s, transform 0.15s, box-shadow 0.15s;
     padding: 0;
     line-height: 1;
     z-index: 3;
     pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   }
   .speak-btn:hover,
   .speak-btn:active {
-    background: var(--c-primary-soft);
-    color: var(--c-primary);
+    background: var(--c-primary);
+    color: #fff;
     opacity: 1;
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
   }
   .speak-btn.is-speaking {
-    color: var(--c-primary);
+    background: var(--c-primary);
+    color: #fff;
     opacity: 1;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
   }
   /* 移动端：默认显示，避免依赖 hover */
   @media (hover: none) {
-    .speak-btn { opacity: 0.85; }
+    .speak-btn { opacity: 0.95; }
   }
   /* 鼠标设备：hover 气泡时显示 */
   @media (hover: hover) {
-    .message.ai .msg-bubble:hover .speak-btn { opacity: 0.85; }
+    .message.ai .msg-bubble:hover .speak-btn { opacity: 0.95; }
   }
 
   /* ========== 长按气泡弹出菜单 ========== */
