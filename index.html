@@ -537,6 +537,57 @@
     margin-bottom: 12px;
   }
 
+  /* ========== 相关问题提示 ========== */
+  .followup-container {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--c-border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .followup-title {
+    font-size: 0.78rem;
+    color: var(--c-muted);
+    margin-bottom: 2px;
+  }
+  .followup-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: var(--c-primary);
+    background: var(--c-primary-soft);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.15s, background 0.2s, border-color 0.2s;
+    word-break: break-word;
+  }
+  .followup-item:hover {
+    transform: translateY(-1px);
+    border-color: var(--c-primary);
+  }
+  .followup-item:active {
+    transform: translateY(0);
+  }
+  .followup-item::before {
+    content: "💡";
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 0.85em;
+    opacity: 0.85;
+  }
+  body.is-dark .followup-item {
+    background: rgba(139, 92, 246, 0.15);
+  }
+  body.is-dark .followup-item:hover {
+    background: rgba(139, 92, 246, 0.25);
+  }
+
   /* ========== 会话侧栏 ========== */
   .chat-sidebar-overlay {
     position: fixed;
@@ -919,7 +970,12 @@
     "3. 分数写法：$\\frac{1}{2}$ 而不是 1/2\n" +
     "4. 平方写法：$x^2$ 而不是 x²\n" +
     "5. 使用 Markdown 格式组织内容（# 标题，**加粗**，- 列表等）\n" +
-    "6. 严格禁止任何自我介绍，直接给出答案";
+    "6. 严格禁止任何自我介绍，直接给出答案\n" +
+    "7. **非常重要**：回答结束后，必须用一行 \"---相关问题---\" 作为分隔符，然后另起一行列出 2~3 个你认为用户可能继续追问的相关问题，每条用 \"? \" 开头，例如：\n" +
+    "   ---相关问题---\n" +
+    "   ? 第一个相关问题\n" +
+    "   ? 第二个相关问题\n" +
+    "   ? 第三个相关问题";
 
   /** 生成空状态 HTML */
   function buildEmptyTipHTML() {
@@ -1356,6 +1412,54 @@
     });
 
     return html;
+  }
+
+  /** 从 AI 回答中分离出正文与相关问题列表：
+   *  - 识别 "---相关问题---" 分隔行（可能前后有空白）
+   *  - 之后每一行若以 "? " 开头即是一条相关问题；
+   *    同时兼容数字序号「1. xxx」「- xxx」等常见开头
+   *  - 返回 { body: 纯正文不含分隔与问题行, questions: [问题文本...] }
+   */
+  function extractFollowUpQuestions(text) {
+    var emptyResult = { body: text || "", questions: [] };
+    if (!text) return emptyResult;
+
+    // 1) 从后向前找分隔符行，避免正文中间恰好出现类似字符串时误判
+    var rawLines = text.split("\n");
+    var separatorIdx = -1;
+    for (var i = rawLines.length - 1; i >= 0; i--) {
+      var line = rawLines[i].trim();
+      if (line.indexOf("---相关问题") !== -1 && line.indexOf("---") !== -1) {
+        separatorIdx = i;
+        break;
+      }
+    }
+    if (separatorIdx === -1) return emptyResult;
+
+    // 2) 分隔符之后提取问题
+    var tailLines = rawLines.slice(separatorIdx + 1);
+    var questions = [];
+    for (var j = 0; j < tailLines.length; j++) {
+      var q = tailLines[j].trim();
+      if (!q) continue;
+      // 去除常见前缀：? / ？ / 数字序号./- /•
+      q = q.replace(/^[?？]\s*/, "").trim();
+      q = q.replace(/^\d+[\.\、\)]\s*/, "").trim();
+      q = q.replace(/^[-•·■▪➤▶]\s*/, "").trim();
+      if (!q) continue;
+      // 清理可能的尾标点（AI 有时加句号）但保留问号
+      if (/[。！!；;]$/.test(q)) q = q.slice(0, -1);
+      if (q.length > 2 && q.length < 80) questions.push(q);
+      if (questions.length >= 3) break;
+    }
+
+    if (questions.length === 0) return emptyResult;
+
+    // 3) 分离正文：删除分隔行和问题行
+    var bodyLines = rawLines.slice(0, separatorIdx);
+    // 清理末尾空行
+    while (bodyLines.length && /^\s*$/.test(bodyLines[bodyLines.length - 1])) bodyLines.pop();
+    return { body: bodyLines.join("\n"), questions: questions };
   }
 
   /** 渲染用户消息（纯文本，转义 + 换行） */
@@ -1948,23 +2052,54 @@
     // 注意：流结束后不自动滚动到底部，由用户自行操作
     function finalRender(textForBubble, msgObjToAttach) {
       flushStreamAppend(true);
+
+      // 从回答末尾分离出「相关问题」，让它们变成可点击的建议按钮
+      var extracted = extractFollowUpQuestions(textForBubble);
+      var bodyForBubble = extracted.body;
+      var questions = extracted.questions;
+
       var rendered = "";
       try {
-        rendered = renderContent(textForBubble);
+        rendered = renderContent(bodyForBubble);
       } catch (e) {
         rendered = "";
       }
-      // renderContent 返回空或比原文明显短时，回退为纯文本
       if (!rendered || rendered.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length <
-          textForBubble.replace(/\s+/g, "").length * 0.5) {
-        bubble.innerHTML = escapeHtml(textForBubble).replace(/\n/g, "<br>");
+          bodyForBubble.replace(/\s+/g, "").length * 0.5) {
+        bubble.innerHTML = escapeHtml(bodyForBubble).replace(/\n/g, "<br>");
       } else {
         bubble.innerHTML = rendered;
       }
-      appendActions(bubble, aiMsgDiv, textForBubble);
+      appendActions(bubble, aiMsgDiv, bodyForBubble);
       if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
       autoScaleKatex(bubble);
-      // 流结束后不滚动到底部，由用户自行操作
+
+      // 渲染相关问题提示（气泡外的建议卡片）
+      if (questions && questions.length > 0) {
+        var container = document.createElement("div");
+        container.className = "followup-container";
+        var title = document.createElement("div");
+        title.className = "followup-title";
+        title.textContent = "你可能还想问：";
+        container.appendChild(title);
+
+        for (var i = 0; i < questions.length; i++) {
+          (function (questionText) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "followup-item";
+            btn.textContent = questionText;
+            btn.addEventListener("click", function () {
+              if (isGenerating) return;
+              chatInput.value = questionText;
+              chatInput.style.height = "auto";
+              sendMessage();
+            });
+            container.appendChild(btn);
+          })(questions[i]);
+        }
+        aiMsgDiv.appendChild(container);
+      }
     }
 
     try {
