@@ -1878,6 +1878,52 @@
     }, 50);
   }
 
+  /** 重新回答：删除这条 AI 回复及其之后的消息，重新发送原始用户提问 */
+  function regenerateMessage(msgDiv, msg) {
+    if (isGenerating) return;
+
+    // 1. 在当前会话中找到这条 AI 消息的位置
+    var s = currentSession();
+    if (!s) return;
+    var msgs = s.messages;
+    var aiIdx = -1;
+    for (var i = 0; i < msgs.length; i++) {
+      if (msgs[i].id === msg.id) { aiIdx = i; break; }
+    }
+    if (aiIdx < 0) return; // 找不到消息
+    if (msgs[aiIdx].role !== "assistant") return; // 只能对 AI 消息使用
+
+    // 2. 向前找最近一条 user 消息（即触发这条 AI 回答的原始提问）
+    var userIdx = -1;
+    for (var j = aiIdx - 1; j >= 0; j--) {
+      if (msgs[j].role === "user") { userIdx = j; break; }
+    }
+    if (userIdx < 0) return;
+
+    var userQuestion = msgs[userIdx].content;
+
+    // 3. 从数据中删除这条 AI 消息及其之后的所有消息
+    msgs = msgs.slice(0, aiIdx);
+    s.messages = msgs;
+
+    // 4. 从 DOM 中移除这条 AI 消息及其之后的所有消息气泡
+    var allMsgDivs = chatMessages.querySelectorAll(".message");
+    var found = false;
+    for (var k = 0; k < allMsgDivs.length; k++) {
+      if (allMsgDivs[k] === msgDiv) found = true;
+      if (found) {
+        allMsgDivs[k].parentNode.removeChild(allMsgDivs[k]);
+      }
+    }
+
+    // 5. 将用户原始问题写入输入框并发送
+    chatInput.value = userQuestion;
+    saveSessions();
+    setTimeout(function () {
+      sendMessage();
+    }, 50);
+  }
+
   function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
     hideMsgActionMenu();
 
@@ -1887,12 +1933,25 @@
     menu.setAttribute("aria-label", "消息操作");
     menu.setAttribute("tabindex", "-1");
 
-    // 菜单项
+    // 菜单项：AI 消息额外提供"重新回答"
     var items = [
       { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
       { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
-      { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
     ];
+
+    if (msg.role === "assistant" || msg.role === "ai") {
+      items.push({
+        icon: "🔄",
+        label: "重新回答",
+        action: function () { regenerateMessage(msgDiv, msg); }
+      });
+    }
+
+    items.push({
+      icon: "🗑",
+      label: "删除",
+      action: function () { confirmDeleteMessage(msgDiv); }
+    });
 
     var focusableItems = [];
     for (var i = 0; i < items.length; i++) {
