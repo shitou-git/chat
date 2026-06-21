@@ -1824,7 +1824,7 @@
       autoScaleKatex(bubble);
       div.appendChild(bubble);
       attachLongPressToBubble(bubble, div, msg);
-      renderFollowUpButtons(div, questions);
+      renderFollowUpButtons(bubble, questions);
       return div;
     }
 
@@ -2282,7 +2282,7 @@
       if (msgObjToAttach) attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach);
       autoScaleKatex(bubble);
 
-      renderFollowUpButtons(aiMsgDiv, questions);
+      renderFollowUpButtons(bubble, questions);
     }
 
     try {
