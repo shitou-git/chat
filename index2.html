@@ -1197,11 +1197,14 @@
   function removeMessageData(id) {
     var s = currentSession();
     if (!s) return;
-    // 清理预合成的 blob URL，避免内存泄漏
+    // 清理预合成的 blob URL 和 blob 引用，避免内存泄漏
     s.messages.forEach(function (m) {
-      if (m.id === id && m._preAudioUrl) {
-        try { URL.revokeObjectURL(m._preAudioUrl); } catch (e) {}
-        m._preAudioUrl = null;
+      if (m.id === id) {
+        if (m._preAudioUrl) {
+          try { URL.revokeObjectURL(m._preAudioUrl); } catch (e) {}
+          m._preAudioUrl = null;
+        }
+        m._preAudioBlob = null;
       }
     });
     s.messages = s.messages.filter(function (m) { return m.id !== id; });
@@ -1250,7 +1253,7 @@
       abortController = null;
       toggleSendButton(false);
     }
-    // 清理会话内所有消息的预合成 blob URL，避免内存泄漏
+    // 清理会话内所有消息的预合成 blob URL 和 blob 引用，避免内存泄漏
     sessions.forEach(function (s) {
       if (s.id === id) {
         s.messages.forEach(function (m) {
@@ -1258,6 +1261,7 @@
             try { URL.revokeObjectURL(m._preAudioUrl); } catch (e) {}
             m._preAudioUrl = null;
           }
+          m._preAudioBlob = null;
         });
       }
     });
@@ -2776,6 +2780,8 @@
           if (msg._preAudioUrl) {
             try { URL.revokeObjectURL(msg._preAudioUrl); } catch (e) {}
           }
+          // 同时保存 blob 引用，防止浏览器在垃圾回收时释放 blob（仅保存 URL 不足以保证 blob 有效）
+          msg._preAudioBlob = blob;
           msg._preAudioUrl = URL.createObjectURL(blob);
           msg._preAudioCreatedAt = Date.now();
           msg._preAudioExpired = false;
@@ -2784,6 +2790,7 @@
             if (msg._preAudioUrl) {
               try { URL.revokeObjectURL(msg._preAudioUrl); } catch (e) {}
               msg._preAudioUrl = null;
+              msg._preAudioBlob = null; // 同时清除 blob 引用
               msg._preAudioExpired = true;
             }
           }, 30 * 60 * 1000);
@@ -2858,10 +2865,11 @@
           return;
         }
         var url = msgObj._preAudioUrl;
-        // 验证 blob URL 仍然有效（可能被 30 分钟清理了）
-        var isValidBlobUrl = url && typeof url === "string" && url.startsWith("blob:");
+        // 验证 blob URL 仍然有效（可能被 30 分钟清理了，或 blob 已被 GC 回收）
+        var isValidBlobUrl = url && typeof url === "string" && url.startsWith("blob:") && msgObj._preAudioBlob;
         if (!isValidBlobUrl) {
           msgObj._preAudioExpired = true;
+          msgObj._preAudioBlob = null; // 清除无效引用
         } else {
           stopAllSpeak();  // 停掉之前可能正在播放的其他音频
           btn.classList.add("is-speaking");
@@ -2877,7 +2885,10 @@
             showToast("音频播放失败", 3000);
           });
           _ttsAudio.src = url;
-          _ttsAudio.play();
+          _ttsAudio.play().catch(function () {
+            // 播放失败（如 blob 已失效），标记缓存过期，下次点击时重新合成
+            msgObj._preAudioExpired = true;
+          });
           return;
         }
       }
