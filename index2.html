@@ -1064,50 +1064,6 @@
     KATEX_WAIT_TIMEOUT: 5000,  // ms — 等待 KaTeX 加载
   };
 
-  /*
-   * ============================================================
-   *  凭证混淆层
-   *
-   *  ⚠️ 纯前端无法真正保护密钥，以下为多层混淆以显著提高
-   *     逆向提取成本。如需真正安全请使用后端代理。
-   *
-   *  混淆策略（4 层）：
-   *    1. XOR 加密——原始密钥逐字节与掩码异或，非简单编码
-   *    2. 分片存储——密文拆成多段 hex，散落在不同数组位置
-   *    3. 变量名伪装——函数/变量名不暗示与密钥的关系
-   *    4. 运行时拼装——密钥不落变量，用后即弃
-   *
-   *  更换密钥：运行 keygen.html，粘贴新 Key 即可生成新代码块
-   * ============================================================
-   */
-
-  // 第 1 层：密文分片（XOR 后的 hex，看起来像随机配置数据）
-  var _cf = [
-    "0b06140723060567", "3d5a5c02006b2335",
-    "3b596d5f664a383f", "290e502430420711",
-    "31227f3b3a663a37", "0e195d5330574129",
-    "4e0363"
-  ];
-
-  // 第 2 层：掩码（看起来像构建版本号）
-  var _bv = "xm9kQ2vP";
-
-  // 第 3 层：解码函数（名称伪装为「构建配置解析」）
-  function _pc(h, k) {
-    var r = "";
-    for (var i = 0; i < h.length; i += 2) {
-      r += String.fromCharCode(
-        parseInt(h.substr(i, 2), 16) ^ k.charCodeAt((i >> 1) % k.length)
-      );
-    }
-    return r;
-  }
-
-  // 第 4 层：运行时拼装——每次调用重新解密，不缓存到变量
-  function _ar() {
-    return _pc(_cf.join(""), _bv);
-  }
-
   const SYSTEM_PROMPT =
     "你是一个智能、友好、知识渊博的 AI 助手。请用中文回答用户的问题，回答要清晰、准确、有条理。\n\n" +
     "【输出格式要求】\n" +
@@ -2599,6 +2555,115 @@
     speakViaWebSpeech(trimmed, btnEl);
   }
 
+  /** 预合成语音：流结束后自动调用 TTS API，缓存 blob URL 到 message 对象
+   *  用户点击播报时直接播放，无需等待合成
+   *  自动重试 3 次（指数退避），失败静默降级，不影响主流程
+   *  合成成功后 30 分钟自动清理缓存
+   */
+  function preSynthesizeSpeech(msg) {
+    if (!msg || !msg.content || !hasWorkerTTS()) return;
+    var text = stripMarkdown(msg.content);
+    if (!text || text.length < 2) return;
+
+    if (msg._synthInProgress) return;
+    msg._synthInProgress = true;
+    msg._synthCallbacks = msg._synthCallbacks || [];
+
+    var MAX_RETRIES = 3;
+    var retryDelay = 1000; // 指数退避：1s, 2s, 4s
+
+    function done(success) {
+      msg._synthInProgress = false;
+      var cbs = msg._synthCallbacks || [];
+      msg._synthCallbacks = [];
+      cbs.forEach(function (cb) {
+        try { cb(success); } catch (e) {}
+      });
+    }
+
+    function attempt(synthText, attemptNum) {
+      var ac = new AbortController();
+      var tid = setTimeout(function () { ac.abort(); }, 20000); // 单次请求 20s 超时
+
+      fetch(CONFIG.TTS_WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          text: synthText.slice(0, 2000),
+          voice: "zh-CN-XiaoxiaoNeural",
+          rate: "+0%",
+          pitch: "+0Hz",
+        }),
+      }).then(function (resp) {
+        clearTimeout(tid);
+        if (!resp.ok || resp.status >= 400) throw new Error("HTTP " + resp.status);
+        return resp.blob();
+      }).then(function (blob) {
+        if (blob && blob.size > 0) {
+          // 清理旧的 blob URL（如果存在）
+          if (msg._preAudioUrl) {
+            try { URL.revokeObjectURL(msg._preAudioUrl); } catch (e) {}
+          }
+          // 同时保存 blob 引用，防止浏览器在垃圾回收时释放 blob
+          msg._preAudioBlob = blob;
+          msg._preAudioUrl = URL.createObjectURL(blob);
+          msg._preAudioCreatedAt = Date.now();
+          msg._preAudioExpired = false;
+          // 30 分钟后自动清理缓存
+          setTimeout(function () {
+            if (msg._preAudioUrl) {
+              try { URL.revokeObjectURL(msg._preAudioUrl); } catch (e) {}
+              msg._preAudioUrl = null;
+              msg._preAudioBlob = null;
+              msg._preAudioExpired = true;
+            }
+          }, 30 * 60 * 1000);
+          // 开启自动播报时，合成完毕自动播放
+          if (autoPlayTTS && autoPlayTTSReady && !msg._userTriggered && !msg._autoPlayDone) {
+            msg._autoPlayDone = true;
+            doAutoPlay(msg);
+          }
+          done(true);
+        } else {
+          done(false);
+        }
+      }).catch(function () {
+        clearTimeout(tid);
+        if (attemptNum < MAX_RETRIES) {
+          setTimeout(function () {
+            attempt(synthText, attemptNum + 1);
+          }, retryDelay * attemptNum);
+        } else {
+          done(false);
+        }
+      });
+    }
+
+    attempt(text, 1);
+  }
+
+  /** 执行自动播放（由 preSynthesizeSpeech 成功合成后调用） */
+  function doAutoPlay(msg) {
+    if (!msg || !msg._preAudioUrl || msg._preAudioExpired) return;
+    var url = msg._preAudioUrl;
+    stopAllSpeak();
+    var btn = document.querySelector(".message[data-msg-id='" + msg.id + "'] .speak-btn");
+    if (btn) { btn.classList.add("is-speaking"); }
+    _currentSpeakBtn = btn || null;
+    if (!_ttsAudio) _ttsAudio = new Audio();
+    _ttsAudio.addEventListener("ended", function () {
+      if (btn) btn.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+    });
+    _ttsAudio.addEventListener("error", function () {
+      if (btn) btn.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+    });
+    _ttsAudio.src = url;
+    _ttsAudio.play();
+  }
+
   /** 给 AI 消息气泡的右上角附加一个喇叭按钮 */
   /**
    * 去除 Markdown 格式，提取纯文本（供语音朗读用）
@@ -2656,7 +2721,7 @@
     return t;
   }
 
-  function attachSpeakButton(bubble, rawText) {
+  function attachSpeakButton(bubble, rawText, msgObj) {
     if (!bubble) return;
     // 有 Worker TTS 代理 或 浏览器有 Web Speech API，才显示按钮
     // （有 Worker 时即使无 Web Speech API 也能播报，微信内可用）
@@ -2669,9 +2734,81 @@
     btn.innerHTML = "🔊";
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
+      // 用户主动点击播报，标记为非自动播放
+      if (msgObj) { msgObj._userTriggered = true; }
+
+      // 优先使用预合成的音频（流结束后已缓存），直接播放无需等待
+      if (msgObj && msgObj._preAudioUrl && !msgObj._preAudioExpired) {
+        // 如果点击的是正在播放的按钮，则停止
+        if (_currentSpeakBtn === btn) {
+          stopAllSpeak();
+          return;
+        }
+        var url = msgObj._preAudioUrl;
+        // 验证 blob URL 仍然有效
+        var isValidBlobUrl = url && typeof url === "string" && url.startsWith("blob:") && msgObj._preAudioBlob;
+        if (!isValidBlobUrl) {
+          msgObj._preAudioExpired = true;
+          msgObj._preAudioBlob = null;
+        } else {
+          stopAllSpeak();
+          btn.classList.add("is-speaking");
+          _currentSpeakBtn = btn;
+          if (!_ttsAudio) _ttsAudio = new Audio();
+          _ttsAudio.addEventListener("ended", function () {
+            btn.classList.remove("is-speaking");
+            if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+          });
+          _ttsAudio.addEventListener("error", function () {
+            btn.classList.remove("is-speaking");
+            if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+            showToast("音频播放失败", 3000);
+          });
+          _ttsAudio.src = url;
+          _ttsAudio.play().catch(function () {
+            msgObj._preAudioExpired = true;
+          });
+          return;
+        }
+      }
+
+      // 预合成正在进行中：等待完成后直接播放，不发起重复请求
+      if (msgObj && msgObj._synthInProgress) {
+        showToast("正在合成语音，请稍候...");
+        btn.classList.add("is-speaking");
+        _currentSpeakBtn = btn;
+        msgObj._synthCallbacks = msgObj._synthCallbacks || [];
+        msgObj._synthCallbacks.push(function (success) {
+          if (_currentSpeakBtn !== btn) return;
+          btn.classList.remove("is-speaking");
+          _currentSpeakBtn = null;
+          if (success && msgObj._preAudioUrl && !msgObj._preAudioExpired) {
+            stopAllSpeak();
+            btn.classList.add("is-speaking");
+            _currentSpeakBtn = btn;
+            if (!_ttsAudio) _ttsAudio = new Audio();
+            _ttsAudio.addEventListener("ended", function () {
+              btn.classList.remove("is-speaking");
+              if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+            });
+            _ttsAudio.addEventListener("error", function () {
+              btn.classList.remove("is-speaking");
+              if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+              showToast("音频播放失败", 3000);
+            });
+            _ttsAudio.src = msgObj._preAudioUrl;
+            _ttsAudio.play().catch(function () {
+              msgObj._preAudioExpired = true;
+            });
+          }
+        });
+        return;
+      }
+
+      // 缓存已过期或从未合成：重新触发合成
       var plain;
       if (typeof rawText === "string" && rawText.length > 0) {
-        plain = stripMarkdown(rawText);  // 去除 Markdown 格式后再朗读
+        plain = stripMarkdown(rawText);
       } else {
         plain = bubble.textContent || bubble.innerText || "";
       }
@@ -2775,8 +2912,10 @@
       chatMessages.appendChild(aiMsgDiv);
       // 不使用 appendActions（其内部会再用无 id 的 msg 绑定长按，导致重复绑定）；
       // 这里分别绑定朗读与长按，且长按用带 id 的 aiReply 以支持「重新回答/复制」定位消息
-      attachSpeakButton(bubbleForId, IDENTITY_REPLY);
+      attachSpeakButton(bubbleForId, IDENTITY_REPLY, aiReply);
       attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
+      // 身份回复也预合成
+      preSynthesizeSpeech(aiReply);
       scrollToBottom(true);
       saveChatHistory();
       toggleSendButton(false);
@@ -2932,7 +3071,7 @@
       }
       // 长按只绑定一次：优先用带 id 的 msgObjToAttach（支持「重新回答」定位消息）；
       // 不使用 appendActions，避免与 attachLongPressToBubble 重复绑定长按事件
-      attachSpeakButton(bubble, bodyForBubble);
+      attachSpeakButton(bubble, bodyForBubble, msgObjToAttach);
       attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach || { role: "assistant", content: bodyForBubble });
       autoScaleKatex(bubble);
 
@@ -3053,6 +3192,8 @@
       var aiMsg = addMessageData("assistant", fullContent);
       aiMsgDiv.dataset.msgId = aiMsg.id;
       finalRender(fullContent, aiMsg);
+      // 流结束后预合成语音，用户点击时直接播放无需等待
+      preSynthesizeSpeech(aiMsg);
 
       var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
       console.log(
@@ -3070,6 +3211,7 @@
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
           finalRender(fullContent, partialMsg);
+          preSynthesizeSpeech(partialMsg);
           saveChatHistory();
         } else {
           aiMsgDiv.remove();
