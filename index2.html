@@ -2316,6 +2316,12 @@
     }, duration || 3000);
   }
 
+  function hideToast() {
+    var toast = document.getElementById("ttsToast");
+    if (toast) toast.classList.remove("show");
+    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+  }
+
   /** 检测微信内置浏览器 */
   function isWeChatBrowser() {
     try {
@@ -2365,6 +2371,7 @@
   var _ttsVerified = false;   // 是否已验证 Web Speech 确实可发声（onstart 触发过）
   var _ttsBroken = false;     // 是否已确认本地 Web Speech 不可用（避免反复试探）
   var _ttsAudio = null;       // Worker TTS 用的 <audio> 元素
+  var _synthAbortControllers = []; // 所有进行中的预合成 AbortController
 
   /** 是否有可用的 Worker TTS 代理 */
   function hasWorkerTTS() {
@@ -2380,7 +2387,7 @@
     }
   }
 
-  /** 停止当前所有播报（Web Speech + Worker audio） */
+  /** 停止当前所有播报（Web Speech + Worker audio + 预合成请求） */
   function stopAllSpeak() {
     // 停 Web Speech
     if (hasTTSAPI()) {
@@ -2390,6 +2397,11 @@
     if (_ttsAudio) {
       try { _ttsAudio.pause(); _ttsAudio.currentTime = 0; } catch (e) {}
     }
+    // 取消所有进行中的预合成请求
+    _synthAbortControllers.forEach(function (ac) {
+      try { ac.abort(); } catch (e) {}
+    });
+    _synthAbortControllers = [];
     // 恢复按钮状态
     document.querySelectorAll(".speak-btn.is-speaking").forEach(function (b) {
       b.classList.remove("is-speaking");
@@ -2574,6 +2586,10 @@
 
     function done(success) {
       msg._synthInProgress = false;
+      // 从全局列表中移除这个请求的 AbortController
+      _synthAbortControllers = _synthAbortControllers.filter(function (c) {
+        return c.signal && !c.signal.aborted;
+      });
       var cbs = msg._synthCallbacks || [];
       msg._synthCallbacks = [];
       cbs.forEach(function (cb) {
@@ -2584,6 +2600,7 @@
     function attempt(synthText, attemptNum) {
       var ac = new AbortController();
       var tid = setTimeout(function () { ac.abort(); }, 20000); // 单次请求 20s 超时
+      _synthAbortControllers.push(ac);
 
       fetch(CONFIG.TTS_WORKER_URL, {
         method: "POST",
@@ -2781,7 +2798,10 @@
         msgObj._synthCallbacks.push(function (success) {
           btn.classList.remove("is-speaking");
           if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
-          if (!success) return;
+          if (!success) {
+            hideToast();
+            return;
+          }
           if (msgObj._preAudioUrl && !msgObj._preAudioExpired) {
             stopAllSpeak();
             btn.classList.add("is-speaking");
@@ -2869,6 +2889,10 @@
     chatInput.value = "";
     chatInput.style.height = "auto";
     toggleSendButton(true);
+
+    // 停止所有播报和预合成，清除残留的 toast
+    stopAllSpeak();
+    hideToast();
 
     // 移除空状态
     var emptyTip = chatMessages.querySelector(".chat-empty-tip");
