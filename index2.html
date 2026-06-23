@@ -1177,6 +1177,13 @@
   function removeMessageData(id) {
     var s = currentSession();
     if (!s) return;
+    // 清理预合成的 blob URL，避免内存泄漏
+    s.messages.forEach(function (m) {
+      if (m.id === id && m._preAudioUrl) {
+        try { URL.revokeObjectURL(m._preAudioUrl); } catch (e) {}
+        m._preAudioUrl = null;
+      }
+    });
     s.messages = s.messages.filter(function (m) { return m.id !== id; });
   }
 
@@ -1223,6 +1230,17 @@
       abortController = null;
       toggleSendButton(false);
     }
+    // 清理会话内所有消息的预合成 blob URL，避免内存泄漏
+    sessions.forEach(function (s) {
+      if (s.id === id) {
+        s.messages.forEach(function (m) {
+          if (m._preAudioUrl) {
+            try { URL.revokeObjectURL(m._preAudioUrl); } catch (e) {}
+            m._preAudioUrl = null;
+          }
+        });
+      }
+    });
     sessions = sessions.filter(function (s) { return s.id !== id; });
 
     if (currentSessionId === id || sessions.length === 0) {
@@ -2125,7 +2143,7 @@
       bubble.innerHTML = renderContent(bodyForBubble);
       div.appendChild(bubble);
       attachLongPressToBubble(bubble, div, msg);
-      attachSpeakButton(bubble, bodyForBubble);
+      attachSpeakButton(bubble, bodyForBubble, msg);
       // autoScaleKatex 必须在 bubble 加入 DOM 之后调用，
       // 否则 clientWidth/scrollWidth 为 0，缩放比例计算错误
       autoScaleKatex(bubble);
@@ -2355,9 +2373,18 @@
     toast.textContent = msg;
     toast.classList.add("show");
     if (_toastTimer) clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(function () {
-      toast.classList.remove("show");
-    }, duration || 3000);
+    if (duration) {
+      _toastTimer = setTimeout(function () {
+        toast.classList.remove("show");
+      }, duration);
+    }
+    return toast;
+  }
+
+  function hideToast() {
+    var toast = document.getElementById("ttsToast");
+    if (toast) toast.classList.remove("show");
+    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
   }
 
   /** 检测微信内置浏览器 */
@@ -2439,6 +2466,8 @@
       b.classList.remove("is-speaking");
     });
     _currentSpeakBtn = null;
+    // 隐藏"正在合成"提示
+    hideToast();
   }
 
   /** 通过 Worker 代理调用 Edge-TTS 合成并播放 MP3 */
@@ -2455,7 +2484,7 @@
       try { _ttsAudio.pause(); } catch (e) {}
     }
 
-    showToast("正在合成语音...", 5000);
+    showToast("正在合成语音...");  // 持久显示，合成完成/失败/用户点击按钮时隐藏
 
     try {
       var resp = await fetch(CONFIG.TTS_WORKER_URL, {
@@ -2489,20 +2518,25 @@
         _ttsAudio.addEventListener("error", function () {
           if (btnEl) btnEl.classList.remove("is-speaking");
           if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-          showToast("音频播放失败");
+          showToast("音频播放失败", 3000);
         });
       }
       _ttsAudio.src = url;
       await _ttsAudio.play();
-      // 隐藏"正在合成"提示
-      var toast = document.getElementById("ttsToast");
-      if (toast) toast.classList.remove("show");
+      // 合成并播放成功，隐藏提示
+      hideToast();
     } catch (err) {
       if (btnEl) btnEl.classList.remove("is-speaking");
       if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-      var toast = document.getElementById("ttsToast");
-      if (toast) toast.classList.remove("show");
-      showToast("语音合成失败：" + err.message + "，可长按消息复制文字");
+      hideToast();
+      // 区分错误类型，给出更友好的提示
+      if (err.name === "AbortError" || (err.message && err.message.includes("aborted"))) {
+        showToast("语音合成超时，请稍后重试", 4000);
+      } else if (err.message && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("Failed to"))) {
+        showToast("网络异常，请检查网络后重试", 4000);
+      } else {
+        showToast("语音合成失败：" + err.message + "，可长按消息复制文字", 4000);
+      }
     }
   }
 
@@ -2656,7 +2690,61 @@
     return t;
   }
 
-  function attachSpeakButton(bubble, rawText) {
+  /** 预合成语音：流结束后自动调用 TTS API，缓存 blob URL 到 message 对象
+   *  用户点击播报时直接播放，无需等待合成
+   *  自动重试 3 次（指数退避），失败静默降级，不影响主流程
+   */
+  function preSynthesizeSpeech(msg) {
+    if (!msg || !msg.content || !hasWorkerTTS()) return;
+    var text = stripMarkdown(msg.content);
+    if (!text || text.length < 2) return;
+
+    var MAX_RETRIES = 3;
+    var retryDelay = 1000; // 指数退避：1s, 2s, 4s
+
+    function attempt(synthText, attemptNum) {
+      var ac = new AbortController();
+      var tid = setTimeout(function () { ac.abort(); }, 20000); // 单次请求 20s 超时
+
+      fetch(CONFIG.TTS_WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          text: synthText.slice(0, 2000),
+          voice: "zh-CN-XiaoxiaoNeural",
+          rate: "+0%",
+          pitch: "+0Hz",
+        }),
+      }).then(function (resp) {
+        clearTimeout(tid);
+        if (!resp.ok || resp.status >= 400) throw new Error("HTTP " + resp.status);
+        return resp.blob();
+      }).then(function (blob) {
+        if (blob && blob.size > 0) {
+          msg._preAudioUrl = URL.createObjectURL(blob);
+        }
+        // 合成成功，隐藏 toast
+        hideToast();
+      }).catch(function () {
+        clearTimeout(tid);
+        if (attemptNum < MAX_RETRIES) {
+          setTimeout(function () {
+            attempt(synthText, attemptNum + 1);
+          }, retryDelay * attemptNum);
+        } else {
+          // 重试耗尽则静默降级，隐藏 toast
+          hideToast();
+        }
+      });
+    }
+
+    // 显示持久 toast，直到合成完成或用户点击播报按钮
+    showToast("正在合成语音...");
+    attempt(text, 1);
+  }
+
+  function attachSpeakButton(bubble, rawText, msgObj) {
     if (!bubble) return;
     // 有 Worker TTS 代理 或 浏览器有 Web Speech API，才显示按钮
     // （有 Worker 时即使无 Web Speech API 也能播报，微信内可用）
@@ -2669,6 +2757,27 @@
     btn.innerHTML = "🔊";
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
+      // 优先使用预合成的音频（流结束后已缓存），直接播放无需等待
+      if (msgObj && msgObj._preAudioUrl) {
+        var url = msgObj._preAudioUrl;
+        stopAllSpeak();  // 停掉当前播放 + 隐藏 toast
+        btn.classList.add("is-speaking");
+        _currentSpeakBtn = btn;
+        if (!_ttsAudio) _ttsAudio = new Audio();
+        _ttsAudio.addEventListener("ended", function () {
+          btn.classList.remove("is-speaking");
+          if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+        });
+        _ttsAudio.addEventListener("error", function () {
+          btn.classList.remove("is-speaking");
+          if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+          showToast("音频播放失败", 3000);
+        });
+        _ttsAudio.src = url;
+        _ttsAudio.play();
+        return;
+      }
+      // 无预合成：走正常合成流程
       var plain;
       if (typeof rawText === "string" && rawText.length > 0) {
         plain = stripMarkdown(rawText);  // 去除 Markdown 格式后再朗读
@@ -2775,8 +2884,10 @@
       chatMessages.appendChild(aiMsgDiv);
       // 不使用 appendActions（其内部会再用无 id 的 msg 绑定长按，导致重复绑定）；
       // 这里分别绑定朗读与长按，且长按用带 id 的 aiReply 以支持「重新回答/复制」定位消息
-      attachSpeakButton(bubbleForId, IDENTITY_REPLY);
+      attachSpeakButton(bubbleForId, IDENTITY_REPLY, aiReply);
       attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
+      // 身份回复也预合成
+      preSynthesizeSpeech(aiReply);
       scrollToBottom(true);
       saveChatHistory();
       toggleSendButton(false);
@@ -2932,7 +3043,7 @@
       }
       // 长按只绑定一次：优先用带 id 的 msgObjToAttach（支持「重新回答」定位消息）；
       // 不使用 appendActions，避免与 attachLongPressToBubble 重复绑定长按事件
-      attachSpeakButton(bubble, bodyForBubble);
+      attachSpeakButton(bubble, bodyForBubble, msgObjToAttach || { role: "assistant", content: bodyForBubble });
       attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach || { role: "assistant", content: bodyForBubble });
       autoScaleKatex(bubble);
 
@@ -3053,6 +3164,8 @@
       var aiMsg = addMessageData("assistant", fullContent);
       aiMsgDiv.dataset.msgId = aiMsg.id;
       finalRender(fullContent, aiMsg);
+      // 流结束后预合成语音，用户点击时直接播放无需等待
+      preSynthesizeSpeech(aiMsg);
 
       var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
       console.log(
@@ -3070,6 +3183,7 @@
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
           finalRender(fullContent, partialMsg);
+          preSynthesizeSpeech(partialMsg);
           saveChatHistory();
         } else {
           aiMsgDiv.remove();
@@ -3078,7 +3192,7 @@
         var errMsg = { role: "assistant", content: "❌ 出错了：" + err.message };
         bubble.innerHTML = renderContent("❌ 出错了：" + err.message);
         // 不使用 appendActions，避免长按事件重复绑定；朗读优先用已生成的部分内容
-        attachSpeakButton(bubble, fullContent || ("❌ 出错了：" + err.message));
+        attachSpeakButton(bubble, fullContent || ("❌ 出错了：" + err.message), errMsg);
         attachLongPressToBubble(bubble, aiMsgDiv, errMsg);
         console.error(err);
       }
