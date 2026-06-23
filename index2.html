@@ -2756,15 +2756,16 @@
    *  每次调用会取消之前的请求，用新文本重新合成
    *  避免频繁触发，控制间隔至少 1.5 秒且文本增量至少 30 字符
    *  target 可以是消息对象或 DOM 元素（流式过程中的 aiMsgDiv）
+   *  text 是原始文本（含 Markdown），函数内部会去除格式
    */
   var _incrSynthTarget = null;    // 当前增量合成的目标
-  var _incrSynthText = null;      // 当前增量合成的文本
+  var _incrSynthText = null;      // 当前增量合成的纯文本
   var _incrSynthTime = 0;         // 上次合成时间
   var _incrSynthAc = null;        // 当前请求的 AbortController
 
-  function incrementalPreSynthesize(target) {
+  function incrementalPreSynthesize(target, rawText) {
     if (!target || !hasWorkerTTS()) return;
-    var text = stripMarkdown(fullContent);
+    var text = stripMarkdown(rawText || "");
     if (!text || text.length < 30) return; // 太短不合成
 
     var now = Date.now();
@@ -3266,7 +3267,7 @@
       lastAppendTs = nowTs;
 
       // ===== 触发增量预合成：边输出边合成，用户可更早听到播报 =====
-      incrementalPreSynthesize(aiMsgDiv);
+      incrementalPreSynthesize(aiMsgDiv, fullContent);
 
       // ===== 滚动控制：长内容时降低滚动频率（scrollHeight 读取触发重排）=====
       if (!force) {
