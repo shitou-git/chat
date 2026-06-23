@@ -410,6 +410,10 @@
   @media (hover: hover) {
     .message.ai:hover .speak-btn { opacity: 0.95; }
   }
+  /* PWA standalone 模式：默认显示，不依赖 hover */
+  @media all and (display-mode: standalone) {
+    .speak-btn { opacity: 0.95; }
+  }
 
   /* ========== 轻量 Toast 提示（语音播报降级提示等） ========== */
   .tts-toast {
