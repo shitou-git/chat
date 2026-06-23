@@ -2829,22 +2829,28 @@
           return;
         }
         var url = msgObj._preAudioUrl;
-        stopAllSpeak();  // 停掉之前可能正在播放的其他音频
-        btn.classList.add("is-speaking");
-        _currentSpeakBtn = btn;
-        if (!_ttsAudio) _ttsAudio = new Audio();
-        _ttsAudio.addEventListener("ended", function () {
-          btn.classList.remove("is-speaking");
-          if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
-        });
-        _ttsAudio.addEventListener("error", function () {
-          btn.classList.remove("is-speaking");
-          if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
-          showToast("音频播放失败", 3000);
-        });
-        _ttsAudio.src = url;
-        _ttsAudio.play();
-        return;
+        // 验证 blob URL 仍然有效（可能被 30 分钟清理了）
+        var isValidBlobUrl = url && typeof url === "string" && url.startsWith("blob:");
+        if (!isValidBlobUrl) {
+          msgObj._preAudioExpired = true;
+        } else {
+          stopAllSpeak();  // 停掉之前可能正在播放的其他音频
+          btn.classList.add("is-speaking");
+          _currentSpeakBtn = btn;
+          if (!_ttsAudio) _ttsAudio = new Audio();
+          _ttsAudio.addEventListener("ended", function () {
+            btn.classList.remove("is-speaking");
+            if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+          });
+          _ttsAudio.addEventListener("error", function () {
+            btn.classList.remove("is-speaking");
+            if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+            showToast("音频播放失败", 3000);
+          });
+          _ttsAudio.src = url;
+          _ttsAudio.play();
+          return;
+        }
       }
 
       // 缓存已过期或从未合成：重新触发合成（用户点击优先）
