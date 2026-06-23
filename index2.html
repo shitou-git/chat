@@ -2533,12 +2533,14 @@
         _ttsAudio.addEventListener("ended", function () {
           if (btnEl) btnEl.classList.remove("is-speaking");
           if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-          URL.revokeObjectURL(_ttsAudio.src);
+          // 不释放 _ttsAudio.src，因为可能是预合成的缓存 URL（_preAudioUrl），
+          // 释放会导致预合成缓存失效。blob URL 由浏览器管理，不主动释放也无妨。
         });
         _ttsAudio.addEventListener("error", function () {
           if (btnEl) btnEl.classList.remove("is-speaking");
           if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
           showToast("音频播放失败", 3000);
+          // 同样不释放 src，避免误释放预合成缓存 URL
         });
       }
       _ttsAudio.src = url;
