@@ -2684,13 +2684,12 @@
     if (!trimmed) return;
 
     // 优先 Worker TTS（微信内也能用）
-    // 但微信浏览器无法访问外部域名，使用 Web Speech API 代替
-    if (hasWorkerTTS() && !isWeChatBrowser()) {
+    if (hasWorkerTTS()) {
       speakViaWorker(trimmed, btnEl);
       return;
     }
 
-    // 微信或无 Worker TTS：使用浏览器本地 Web Speech API
+    // 降级：浏览器本地 Web Speech API
     if (!hasTTSAPI()) { showTTSUnavailable(); return; }
     if (_ttsBroken) { showTTSUnavailable(); return; }
     speakViaWebSpeech(trimmed, btnEl);
@@ -2757,10 +2756,9 @@
    *  用户点击播报时直接播放，无需等待合成
    *  自动重试 3 次（指数退避），失败静默降级，不影响主流程
    *  合成成功后 30 分钟自动清理缓存
-   *  注意：微信浏览器无法访问外部 TTS Worker URL，跳过预合成
    */
   function preSynthesizeSpeech(msg) {
-    if (!msg || !msg.content || !hasWorkerTTS() || isWeChatBrowser()) return;
+    if (!msg || !msg.content || !hasWorkerTTS()) return;
     var text = stripMarkdown(msg.content);
     if (!text || text.length < 2) return;
 
