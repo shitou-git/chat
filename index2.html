@@ -3123,6 +3123,12 @@
       aiMsgDiv.dataset.msgId = aiMsg.id;
       finalRender(fullContent, aiMsg);
 
+      // 自动播报
+      if (autoPlayTTS && autoPlayTTSReady) {
+        var plainText = stripMarkdown(fullContent);
+        if (plainText) speakText(plainText, null);
+      }
+
       var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
       console.log(
         "[灵知-流式] 全文 " + fullContent.length + " 字符" +
@@ -3139,6 +3145,11 @@
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
           finalRender(fullContent, partialMsg);
+          // 自动播报
+          if (autoPlayTTS && autoPlayTTSReady) {
+            var plainText = stripMarkdown(fullContent);
+            if (plainText) speakText(plainText, null);
+          }
           saveChatHistory();
         } else {
           aiMsgDiv.remove();
