@@ -2645,8 +2645,13 @@
         } else {
           done(false);
         }
-      }).catch(function () {
+      }).catch(function (err) {
         clearTimeout(tid);
+        // 如果是用户主动取消（AbortError），不重试，直接结束
+        if (err && err.name === "AbortError") {
+          done(false);
+          return;
+        }
         if (attemptNum < MAX_RETRIES) {
           setTimeout(function () {
             attempt(synthText, attemptNum + 1);
@@ -2798,8 +2803,16 @@
         msgObj._synthCallbacks.push(function (success) {
           btn.classList.remove("is-speaking");
           if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+          hideToast();
           if (!success) {
-            hideToast();
+            // 预合成失败，fallback 到实时合成
+            var plain;
+            if (typeof rawText === "string" && rawText.length > 0) {
+              plain = stripMarkdown(rawText);
+            } else {
+              plain = bubble.textContent || bubble.innerText || "";
+            }
+            speakText(plain, btn);
             return;
           }
           if (msgObj._preAudioUrl && !msgObj._preAudioExpired) {
