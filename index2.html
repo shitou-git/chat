@@ -2647,12 +2647,10 @@
    *  策略：有 Worker TTS → 走 Worker（微信可用）；否则走 Web Speech API（带超时降级）。
    */
   function speakText(plainText, btnEl) {
-    // 正在朗读同一个按钮 → 停止
-    if (_currentSpeakBtn === btnEl) {
+    if (btnEl && _currentSpeakBtn === btnEl) {
       stopAllSpeak();
       return;
     }
-    // 先停掉其他
     stopAllSpeak();
 
     var trimmed = (plainText || "").trim();
