@@ -2759,8 +2759,13 @@
       e.stopPropagation();
       // 优先使用预合成的音频（流结束后已缓存），直接播放无需等待
       if (msgObj && msgObj._preAudioUrl) {
+        // 如果点击的是正在播放的按钮，则停止
+        if (_currentSpeakBtn === btn) {
+          stopAllSpeak();
+          return;
+        }
         var url = msgObj._preAudioUrl;
-        stopAllSpeak();  // 停掉当前播放 + 隐藏 toast
+        stopAllSpeak();  // 停掉之前可能正在播放的其他音频
         btn.classList.add("is-speaking");
         _currentSpeakBtn = btn;
         if (!_ttsAudio) _ttsAudio = new Audio();
