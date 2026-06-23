@@ -2779,10 +2779,10 @@
         _currentSpeakBtn = btn;
         msgObj._synthCallbacks = msgObj._synthCallbacks || [];
         msgObj._synthCallbacks.push(function (success) {
-          if (_currentSpeakBtn !== btn) return;
           btn.classList.remove("is-speaking");
-          _currentSpeakBtn = null;
-          if (success && msgObj._preAudioUrl && !msgObj._preAudioExpired) {
+          if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+          if (!success) return;
+          if (msgObj._preAudioUrl && !msgObj._preAudioExpired) {
             stopAllSpeak();
             btn.classList.add("is-speaking");
             _currentSpeakBtn = btn;
