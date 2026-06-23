@@ -2752,6 +2752,94 @@
     return t;
   }
 
+  /** 增量预合成：流式输出过程中用累积文本发起合成
+   *  每次调用会取消之前的请求，用新文本重新合成
+   *  避免频繁触发，控制间隔至少 1.5 秒且文本增量至少 30 字符
+   *  target 可以是消息对象或 DOM 元素（流式过程中的 aiMsgDiv）
+   */
+  var _incrSynthTarget = null;    // 当前增量合成的目标
+  var _incrSynthText = null;      // 当前增量合成的文本
+  var _incrSynthTime = 0;         // 上次合成时间
+  var _incrSynthAc = null;        // 当前请求的 AbortController
+
+  function incrementalPreSynthesize(target) {
+    if (!target || !hasWorkerTTS()) return;
+    var text = stripMarkdown(fullContent);
+    if (!text || text.length < 30) return; // 太短不合成
+
+    var now = Date.now();
+    // 距上次合成不到 1.5 秒，且文本增量少于 30 字符，跳过
+    if (_incrSynthTarget === target && _incrSynthText === text) return; // 完全相同文本
+    if (_incrSynthTarget === target && _incrSynthText && text.length - _incrSynthText.length < 30 && now - _incrSynthTime < 1500) return;
+
+    // 取消之前的请求
+    if (_incrSynthAc) {
+      _incrSynthAc.abort();
+      _incrSynthAc = null;
+    }
+
+    _incrSynthTarget = target;
+    _incrSynthText = text;
+    _incrSynthTime = now;
+
+    var ac = new AbortController();
+    _incrSynthAc = ac;
+    var tid = setTimeout(function () { ac.abort(); }, 20000);
+
+    fetch(CONFIG.TTS_WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      signal: ac.signal,
+      body: JSON.stringify({
+        text: text.slice(0, 2000),
+        voice: "zh-CN-XiaoxiaoNeural",
+        rate: "+0%",
+        pitch: "+0Hz",
+      }),
+    }).then(function (resp) {
+      clearTimeout(tid);
+      if (!resp.ok || resp.status >= 400) throw new Error("HTTP " + resp.status);
+      return resp.blob();
+    }).then(function (blob) {
+      if (blob && blob.size > 0) {
+        if (target._preAudioUrl) {
+          try { URL.revokeObjectURL(target._preAudioUrl); } catch (e) {}
+        }
+        target._preAudioBlob = blob;
+        target._preAudioUrl = URL.createObjectURL(blob);
+        target._preAudioCreatedAt = Date.now();
+        target._preAudioExpired = false;
+        target._preAudioFromIncr = true; // 标记为增量合成
+        // 30 分钟后自动清理缓存
+        setTimeout(function () {
+          if (target._preAudioUrl) {
+            try { URL.revokeObjectURL(target._preAudioUrl); } catch (e) {}
+            target._preAudioUrl = null;
+            target._preAudioBlob = null;
+            target._preAudioExpired = true;
+          }
+        }, 30 * 60 * 1000);
+      }
+    }).catch(function () {
+      clearTimeout(tid);
+    });
+  }
+
+  /** 将 aiMsgDiv 上的增量合成缓存转移到 aiMsg 对象 */
+  function transferIncrSynthCache(aiMsgDiv, aiMsg) {
+    if (!aiMsgDiv || !aiMsg) return;
+    if (aiMsgDiv._preAudioUrl && !aiMsg._preAudioUrl) {
+      aiMsg._preAudioBlob = aiMsgDiv._preAudioBlob;
+      aiMsg._preAudioUrl = aiMsgDiv._preAudioUrl;
+      aiMsg._preAudioCreatedAt = aiMsgDiv._preAudioCreatedAt;
+      aiMsg._preAudioExpired = false;
+      aiMsg._preAudioFromIncr = true;
+      // 清除 aiMsgDiv 上的缓存（避免重复释放）
+      aiMsgDiv._preAudioBlob = null;
+      aiMsgDiv._preAudioUrl = null;
+    }
+  }
+
   /** 预合成语音：流结束后自动调用 TTS API，缓存 blob URL 到 message 对象
    *  用户点击播报时直接播放，无需等待合成
    *  自动重试 3 次（指数退避），失败静默降级，不影响主流程
@@ -3177,6 +3265,9 @@
       pendingText = "";
       lastAppendTs = nowTs;
 
+      // ===== 触发增量预合成：边输出边合成，用户可更早听到播报 =====
+      incrementalPreSynthesize(aiMsgDiv);
+
       // ===== 滚动控制：长内容时降低滚动频率（scrollHeight 读取触发重排）=====
       if (!force) {
         if (streamMode === "plaintext") {
@@ -3340,6 +3431,8 @@
 
       // ===== 流结束：最终渲染 =====
       var aiMsg = addMessageData("assistant", fullContent);
+      // 将流式过程中增量合成的缓存转移到 aiMsg 对象
+      transferIncrSynthCache(aiMsgDiv, aiMsg);
       aiMsgDiv.dataset.msgId = aiMsg.id;
       finalRender(fullContent, aiMsg);
       // 流结束后预合成语音，用户点击时直接播放无需等待
@@ -3359,6 +3452,7 @@
         if (fullContent.trim()) {
           fullContent = sanitizeIdentity(fullContent);
           var partialMsg = addMessageData("assistant", fullContent);
+          transferIncrSynthCache(aiMsgDiv, partialMsg);
           aiMsgDiv.dataset.msgId = partialMsg.id;
           finalRender(fullContent, partialMsg);
           preSynthesizeSpeech(partialMsg);
