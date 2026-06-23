@@ -1038,7 +1038,10 @@
 
   const CONFIG = {
     /** API 端点 */
-    API_URL: "https://apihub.agnes-ai.com/v1/chat/completions",
+    API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
+
+    /** API Key（替换掉混淆的硬编码） */
+    API_KEY: "",
 
     /**
      * TTS 代理地址（Cloudflare Worker，部署后填入）。
@@ -3094,7 +3097,7 @@
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + _ar(),
+        "Authorization": "Bearer " + CONFIG.API_KEY,
       },
       signal: abortController.signal,
       body: JSON.stringify({
