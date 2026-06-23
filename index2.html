@@ -1040,9 +1040,6 @@
     /** API 端点 */
     API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
 
-    /** API Key（替换掉混淆的硬编码） */
-    API_KEY: "",
-
     /**
      * TTS 代理地址（Cloudflare Worker，部署后填入）。
      * 留空则仅使用浏览器本地 Web Speech API（微信内不可用时会引导外部打开）。
@@ -3091,13 +3088,12 @@
     }
   }
 
-  /** 构造请求——密钥运行时解密，用后不驻留变量 */
+  /** 构造请求 */
   function doFetch(historyMessages) {
     return fetch(CONFIG.API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + CONFIG.API_KEY,
       },
       signal: abortController.signal,
       body: JSON.stringify({
