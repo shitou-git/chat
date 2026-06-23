@@ -2477,6 +2477,10 @@
     if (hasTTSAPI()) {
       try { window.speechSynthesis.cancel(); } catch (e) {}
     }
+    // 取消正在进行的合成请求（防止重试）
+    if (speakViaWorker && typeof speakViaWorker._cancel === "function") {
+      try { speakViaWorker._cancel(); } catch (e) {}
+    }
     // 停 Worker audio
     if (_ttsAudio) {
       try { _ttsAudio.pause(); _ttsAudio.currentTime = 0; } catch (e) {}
@@ -2506,60 +2510,83 @@
 
     showToast("正在合成语音...");  // 持久显示，合成完成/失败/用户点击按钮时隐藏
 
-    try {
-      var resp = await fetch(CONFIG.TTS_WORKER_URL, {
+    var MAX_RETRIES = 3;
+    var retryDelay = 1000; // 指数退避：1s, 2s, 4s
+    var _speakStopped = false; // 用户中途点击停止时标记为 true，阻止后续重试
+
+    function attempt(attemptNum) {
+      var ac = new AbortController();
+      var tid = setTimeout(function () { ac.abort(); }, 20000); // 单次请求 20s 超时
+
+      fetch(CONFIG.TTS_WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
         body: JSON.stringify({
           text: trimmed,
           voice: "zh-CN-XiaoxiaoNeural",
           rate: "+0%",
           pitch: "+0Hz",
         }),
+      }).then(function (resp) {
+        clearTimeout(tid);
+        if (_speakStopped) return null;
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.blob();
+      }).then(function (blob) {
+        if (_speakStopped) return null;
+        if (!blob || blob.size === 0) throw new Error("返回空音频");
+        var url = URL.createObjectURL(blob);
+        if (!_ttsAudio) {
+          _ttsAudio = new Audio();
+          _ttsAudio.addEventListener("ended", function () {
+            if (btnEl) btnEl.classList.remove("is-speaking");
+            if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
+            // 不释放 _ttsAudio.src，因为可能是预合成的缓存 URL（_preAudioUrl），
+            // 释放会导致预合成缓存失效。blob URL 由浏览器管理，不主动释放也无妨。
+          });
+          _ttsAudio.addEventListener("error", function () {
+            if (btnEl) btnEl.classList.remove("is-speaking");
+            if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
+            showToast("音频播放失败", 3000);
+            // 同样不释放 src，避免误释放预合成缓存 URL
+          });
+        }
+        _ttsAudio.src = url;
+        return _ttsAudio.play();
+      }).then(function () {
+        if (_speakStopped) return;
+        // 合成并播放成功，隐藏提示
+        hideToast();
+      }).catch(function (err) {
+        clearTimeout(tid);
+        if (_speakStopped) return; // 用户已停止，不重试
+        if (attemptNum < MAX_RETRIES) {
+          // 指数退避重试
+          setTimeout(function () {
+            if (_speakStopped) return; // 延迟期间用户停止
+            attempt(attemptNum + 1);
+          }, retryDelay * attemptNum);
+        } else {
+          // 重试耗尽
+          if (btnEl) btnEl.classList.remove("is-speaking");
+          if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
+          hideToast();
+          if (err && (err.name === "AbortError" || (err.message && err.message.indexOf("aborted") >= 0))) {
+            showToast("语音合成超时（已重试3次），可长按消息复制文字", 4000);
+          } else if (err && err.message && (err.message.indexOf("fetch") >= 0 || err.message.indexOf("network") >= 0 || err.message.indexOf("Failed to") >= 0)) {
+            showToast("网络异常（已重试3次），请检查网络后重试", 4000);
+          } else {
+            showToast("语音合成失败（已重试3次）：" + (err ? err.message : "未知错误") + "，可长按消息复制文字", 4000);
+          }
+        }
       });
-
-      if (!resp.ok) {
-        var errBody = "";
-        try { errBody = (await resp.json()).error || ""; } catch (e) {}
-        throw new Error(errBody || ("HTTP " + resp.status));
-      }
-
-      var blob = await resp.blob();
-      if (blob.size === 0) throw new Error("返回空音频");
-
-      var url = URL.createObjectURL(blob);
-      if (!_ttsAudio) {
-        _ttsAudio = new Audio();
-        _ttsAudio.addEventListener("ended", function () {
-          if (btnEl) btnEl.classList.remove("is-speaking");
-          if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-          // 不释放 _ttsAudio.src，因为可能是预合成的缓存 URL（_preAudioUrl），
-          // 释放会导致预合成缓存失效。blob URL 由浏览器管理，不主动释放也无妨。
-        });
-        _ttsAudio.addEventListener("error", function () {
-          if (btnEl) btnEl.classList.remove("is-speaking");
-          if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-          showToast("音频播放失败", 3000);
-          // 同样不释放 src，避免误释放预合成缓存 URL
-        });
-      }
-      _ttsAudio.src = url;
-      await _ttsAudio.play();
-      // 合成并播放成功，隐藏提示
-      hideToast();
-    } catch (err) {
-      if (btnEl) btnEl.classList.remove("is-speaking");
-      if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-      hideToast();
-      // 区分错误类型，给出更友好的提示
-      if (err.name === "AbortError" || (err.message && err.message.includes("aborted"))) {
-        showToast("语音合成超时，请稍后重试", 4000);
-      } else if (err.message && (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("Failed to"))) {
-        showToast("网络异常，请检查网络后重试", 4000);
-      } else {
-        showToast("语音合成失败：" + err.message + "，可长按消息复制文字", 4000);
-      }
     }
+
+    // 暴露取消接口，供 stopAllSpeak 调用以阻止重试
+    speakViaWorker._cancel = function () { _speakStopped = true; };
+    // 启动第一次尝试
+    attempt(1);
   }
 
   /** 使用浏览器本地 TTS 朗读文字 */
