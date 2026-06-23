@@ -264,6 +264,16 @@
     height: 8px;
   }
 
+  /* 自动播报按钮：开启时高亮，关闭时灰显 */
+  #chatAutoPlayBtn.is-active {
+    color: var(--c-primary);
+    background: var(--c-primary-soft);
+  }
+  #chatAutoPlayBtn.is-active:hover {
+    background: var(--c-primary);
+    color: #fff;
+  }
+
   /* ========== 消息列表 ========== */
   .chat-messages {
     flex: 1;
@@ -980,6 +990,9 @@
       <h2>灵知</h2>
     </div>
     <div class="chat-header-actions">
+      <button type="button" class="chat-header-btn" id="chatAutoPlayBtn" title="开启/关闭自动播报" aria-label="开启/关闭自动播报">
+        <span class="auto-play-icon" aria-hidden="true">🔊</span>
+      </button>
       <button type="button" class="chat-header-btn chat-header-new-btn" id="chatNewBtn" title="新话题" aria-label="新话题">
         <span class="chat-plus-icon"></span>
       </button>
@@ -1148,6 +1161,10 @@
   /** pendingOperation: { type: 'msg' | 'session' | 'clearAll', ... } */
   var pendingOperation = null;
   var scrollRafId = null;
+  /** 自动播报 TTS 开关 */
+  var autoPlayTTS = false;
+  /** 自动播报状态是否已初始化（避免首次加载时误触发） */
+  var autoPlayTTSReady = false;
 
   /** 获取当前会话 */
   function currentSession() {
@@ -1318,7 +1335,7 @@
    * DOM 引用
    * ================================================================ */
 
-  var chatMessages, chatInput, chatSendBtn, chatNewBtn, chatThemeBtn;
+  var chatMessages, chatInput, chatSendBtn, chatNewBtn, chatThemeBtn, chatAutoPlayBtn;
   var chatConfirmOverlay, chatConfirmCancel, chatConfirmOk;
   var chatConfirmTitle, chatConfirmWarn;
   var chatSidebar, chatSidebarOverlay, chatSidebarClose, chatSidebarNewBtn, chatSidebarList;
@@ -2693,6 +2710,7 @@
   /** 预合成语音：流结束后自动调用 TTS API，缓存 blob URL 到 message 对象
    *  用户点击播报时直接播放，无需等待合成
    *  自动重试 3 次（指数退避），失败静默降级，不影响主流程
+   *  合成成功后 30 分钟自动清理缓存
    */
   function preSynthesizeSpeech(msg) {
     if (!msg || !msg.content || !hasWorkerTTS()) return;
@@ -2722,10 +2740,29 @@
         return resp.blob();
       }).then(function (blob) {
         if (blob && blob.size > 0) {
+          // 清理旧的 blob URL（如果存在）
+          if (msg._preAudioUrl) {
+            try { URL.revokeObjectURL(msg._preAudioUrl); } catch (e) {}
+          }
           msg._preAudioUrl = URL.createObjectURL(blob);
+          msg._preAudioCreatedAt = Date.now();
+          msg._preAudioExpired = false;
+          // 30 分钟后自动清理缓存
+          setTimeout(function () {
+            if (msg._preAudioUrl) {
+              try { URL.revokeObjectURL(msg._preAudioUrl); } catch (e) {}
+              msg._preAudioUrl = null;
+              msg._preAudioExpired = true;
+            }
+          }, 30 * 60 * 1000);
+          // 隐藏 toast
+          hideToast();
+          // 开启自动播报时，合成完毕自动播放
+          if (autoPlayTTS && autoPlayTTSReady && !msg._userTriggered && !msg._autoPlayDone) {
+            msg._autoPlayDone = true;
+            doAutoPlay(msg);
+          }
         }
-        // 合成成功，隐藏 toast
-        hideToast();
       }).catch(function () {
         clearTimeout(tid);
         if (attemptNum < MAX_RETRIES) {
@@ -2744,6 +2781,27 @@
     attempt(text, 1);
   }
 
+  /** 执行自动播放（由 preSynthesizeSpeech 成功合成后调用） */
+  function doAutoPlay(msg) {
+    if (!msg || !msg._preAudioUrl || msg._preAudioExpired) return;
+    var url = msg._preAudioUrl;
+    stopAllSpeak();
+    var btn = document.querySelector(".message[data-msg-id='" + msg.id + "'] .speak-btn");
+    if (btn) { btn.classList.add("is-speaking"); }
+    _currentSpeakBtn = btn || null;
+    if (!_ttsAudio) _ttsAudio = new Audio();
+    _ttsAudio.addEventListener("ended", function () {
+      if (btn) btn.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+    });
+    _ttsAudio.addEventListener("error", function () {
+      if (btn) btn.classList.remove("is-speaking");
+      if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+    });
+    _ttsAudio.src = url;
+    _ttsAudio.play();
+  }
+
   function attachSpeakButton(bubble, rawText, msgObj) {
     if (!bubble) return;
     // 有 Worker TTS 代理 或 浏览器有 Web Speech API，才显示按钮
@@ -2757,8 +2815,11 @@
     btn.innerHTML = "🔊";
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
+      // 用户主动点击播报，标记为非自动播放，避免 auto-play 与手动播放冲突
+      if (msgObj) { msgObj._userTriggered = true; }
+
       // 优先使用预合成的音频（流结束后已缓存），直接播放无需等待
-      if (msgObj && msgObj._preAudioUrl) {
+      if (msgObj && msgObj._preAudioUrl && !msgObj._preAudioExpired) {
         // 如果点击的是正在播放的按钮，则停止
         if (_currentSpeakBtn === btn) {
           stopAllSpeak();
@@ -2782,7 +2843,9 @@
         _ttsAudio.play();
         return;
       }
-      // 无预合成：走正常合成流程
+
+      // 缓存已过期或从未合成：重新触发合成（用户点击优先）
+      if (msgObj) { msgObj._preAudioExpired = false; }
       var plain;
       if (typeof rawText === "string" && rawText.length > 0) {
         plain = stripMarkdown(rawText);  // 去除 Markdown 格式后再朗读
@@ -3445,6 +3508,7 @@
     chatSendBtn = document.getElementById("chatSendBtn");
     chatNewBtn = document.getElementById("chatNewBtn");
     chatThemeBtn = document.getElementById("chatThemeBtn");
+    chatAutoPlayBtn = document.getElementById("chatAutoPlayBtn");
     chatConfirmOverlay = document.getElementById("chatConfirmOverlay");
     chatConfirmCancel = document.getElementById("chatConfirmCancel");
     chatConfirmOk = document.getElementById("chatConfirmOk");
@@ -3512,6 +3576,30 @@
     var savedTheme = null;
     try { savedTheme = localStorage.getItem(THEME_STORAGE_KEY); } catch (e) {}
     applyTheme(savedTheme);
+
+    // ===== 自动播报 TTS 切换 =====
+    var AUTO_PLAY_KEY = "lingzhi_auto_play";
+    function applyAutoPlay(enabled) {
+      autoPlayTTS = !!enabled;
+      if (chatAutoPlayBtn) {
+        if (autoPlayTTS) {
+          chatAutoPlayBtn.classList.add("is-active");
+          chatAutoPlayBtn.title = "关闭自动播报";
+        } else {
+          chatAutoPlayBtn.classList.remove("is-active");
+          chatAutoPlayBtn.title = "开启自动播报";
+        }
+      }
+    }
+    function toggleAutoPlay() {
+      applyAutoPlay(!autoPlayTTS);
+      try { localStorage.setItem(AUTO_PLAY_KEY, autoPlayTTS ? "1" : "0"); } catch (e) {}
+    }
+    if (chatAutoPlayBtn) chatAutoPlayBtn.addEventListener("click", toggleAutoPlay);
+    var savedAutoPlay = null;
+    try { savedAutoPlay = localStorage.getItem(AUTO_PLAY_KEY); } catch (e) {}
+    applyAutoPlay(savedAutoPlay === "1");
+    autoPlayTTSReady = true;  // 初始化完成后才能触发自动播放
 
     // 点击标题打开侧栏
     var chatMenuBtn = document.getElementById("chatMenuBtn");
