@@ -2533,7 +2533,7 @@
 
       fetch(CONFIG.TTS_WORKER_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
         signal: ac.signal,
         body: JSON.stringify({
           text: trimmed,
@@ -2762,8 +2762,21 @@
     var text = stripMarkdown(msg.content);
     if (!text || text.length < 2) return;
 
+    if (msg._synthInProgress) return;
+    msg._synthInProgress = true;
+    msg._synthCallbacks = msg._synthCallbacks || [];
+
     var MAX_RETRIES = 3;
     var retryDelay = 1000; // 指数退避：1s, 2s, 4s
+
+    function done(success) {
+      msg._synthInProgress = false;
+      var cbs = msg._synthCallbacks || [];
+      msg._synthCallbacks = [];
+      cbs.forEach(function (cb) {
+        try { cb(success); } catch (e) {}
+      });
+    }
 
     function attempt(synthText, attemptNum) {
       var ac = new AbortController();
@@ -2771,7 +2784,7 @@
 
       fetch(CONFIG.TTS_WORKER_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
         signal: ac.signal,
         body: JSON.stringify({
           text: synthText.slice(0, 2000),
@@ -2810,6 +2823,9 @@
             msg._autoPlayDone = true;
             doAutoPlay(msg);
           }
+          done(true);
+        } else {
+          done(false);
         }
       }).catch(function () {
         clearTimeout(tid);
@@ -2820,6 +2836,7 @@
         } else {
           // 重试耗尽则静默降级，隐藏 toast
           hideToast();
+          done(false);
         }
       });
     }
@@ -2900,6 +2917,41 @@
           });
           return;
         }
+      }
+
+      // 预合成正在进行中：等待完成后直接播放，不发起重复请求
+      if (msgObj && msgObj._synthInProgress) {
+        showToast("正在合成语音，请稍候...");
+        btn.classList.add("is-speaking");
+        _currentSpeakBtn = btn;
+        msgObj._synthCallbacks = msgObj._synthCallbacks || [];
+        msgObj._synthCallbacks.push(function (success) {
+          if (_currentSpeakBtn !== btn) return;
+          btn.classList.remove("is-speaking");
+          _currentSpeakBtn = null;
+          if (success && msgObj._preAudioUrl && !msgObj._preAudioExpired) {
+            stopAllSpeak();
+            btn.classList.add("is-speaking");
+            _currentSpeakBtn = btn;
+            if (!_ttsAudio) _ttsAudio = new Audio();
+            _ttsAudio.addEventListener("ended", function () {
+              btn.classList.remove("is-speaking");
+              if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+            });
+            _ttsAudio.addEventListener("error", function () {
+              btn.classList.remove("is-speaking");
+              if (_currentSpeakBtn === btn) _currentSpeakBtn = null;
+              showToast("音频播放失败", 3000);
+            });
+            _ttsAudio.src = msgObj._preAudioUrl;
+            _ttsAudio.play().catch(function () {
+              msgObj._preAudioExpired = true;
+            });
+          } else {
+            hideToast();
+          }
+        });
+        return;
       }
 
       // 缓存已过期或从未合成：重新触发合成（用户点击优先）
