@@ -264,18 +264,17 @@
     height: 8px;
   }
 
-  /* 自动播报按钮：开启时高亮（持久保持），关闭时灰显 */
+  /* 自动播报按钮：开启时保持紫色圆圈底色，关闭时暗淡 */
   #chatAutoPlayBtn.is-active {
-    color: var(--c-primary) !important;
-    background: var(--c-primary-soft) !important;
+    background: rgba(139, 92, 246, 0.18) !important;
+    color: #7c3aed !important;
   }
   #chatAutoPlayBtn.is-active:hover {
-    background: var(--c-primary) !important;
-    color: #fff !important;
+    background: rgba(139, 92, 246, 0.3) !important;
+    color: #6d28d9 !important;
   }
-  /* 关闭状态默认样式 */
   #chatAutoPlayBtn:not(.is-active) {
-    opacity: 0.5;
+    opacity: 0.4;
   }
 
   /* ========== 消息列表 ========== */
