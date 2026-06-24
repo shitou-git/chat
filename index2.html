@@ -1899,15 +1899,7 @@
       uniqueKeywords.push(kw);
     }
 
-    // 7. 基于关键词生成模板化追问（条数 = targetCount）
-    var templates = [
-      function (kw) { return "什么是" + kw + "？"; },
-      function (kw) { return kw + "有什么实际应用？"; },
-      function (kw) { return "如何理解" + kw + "？"; },
-      function (kw) { return kw + "的核心是什么？"; },
-      function (kw) { return "关于" + kw + "能举个例子吗？"; },
-    ];
-
+    // 7. 基于关键词生成模板化追问
     var result = [];
     var takeCount = Math.min(uniqueKeywords.length, targetCount);
     for (var i = 0; i < takeCount; i++) {
@@ -1915,19 +1907,25 @@
       result.push(templates[i % templates.length](uniqueKeywords[i]));
     }
 
-    // 8. 如果关键词完全没找到 → 给出通用追问（1~2 条，视长度）
-    if (result.length === 0) {
-      if (targetCount >= 2 && userQuestion && userQuestion.length < 40) {
+    // 8. 补充不足数量：当关键词生成的问题数 < targetCount 时，补充通用追问
+    if (result.length < targetCount) {
+      var remaining = targetCount - result.length;
+      var genericQuestions = [];
+      if (userQuestion && userQuestion.length < 40) {
         var qTopic = userQuestion.replace(/[？?，。,.！!；;]/g, "").trim();
         if (qTopic.length > 0 && qTopic.length <= 20) {
-          result.push("关于" + qTopic + "，能举个例子吗？");
-          result.push("还有其他相关的吗？");
+          genericQuestions.push("关于" + qTopic + "，能举个例子吗？");
+          genericQuestions.push("还有其他相关的吗？");
         } else {
-          result.push("能举个具体例子吗？");
-          result.push("还有其他相关的吗？");
+          genericQuestions.push("能举个具体例子吗？");
+          genericQuestions.push("还有其他相关的吗？");
         }
       } else {
-        result.push("能再详细讲讲吗？");
+        genericQuestions.push("能再详细讲讲吗？");
+      }
+      // 追加不足数量，避免超出 targetCount
+      for (var r = 0; r < Math.min(remaining, genericQuestions.length); r++) {
+        result.push(genericQuestions[r]);
       }
     }
 
@@ -2444,7 +2442,6 @@
   }
 
   var _currentSpeakBtn = null;
-  var _ttsVerified = false;   // 是否已验证 Web Speech 确实可发声（onstart 触发过）
   var _ttsBroken = false;     // 是否已确认本地 Web Speech 不可用（避免反复试探）
   var _ttsAudio = null;       // Worker TTS 用的 <audio> 元素
 
@@ -2613,7 +2610,6 @@
     }
     utter.onstart = function () {
       started = true;
-      _ttsVerified = true;
       clearTimeout(startTimeout);
     };
     utter.onend = function () {
