@@ -2529,7 +2529,7 @@
 
     var segments = [];
     var current = '';
-    var MIN_SEG_LEN = 40;
+    var MIN_SEG_LEN = 20;
 
     for (var i = 0; i < cleaned.length; i++) {
       var ch = cleaned[i];
@@ -2769,8 +2769,7 @@
     stopAllSpeak();
     resetStreamTTS();
     _autoPlayStream = {
-      receivedText: '',
-      lastSentIndex: 0,
+      lastSentCharIndex: 0,
       finished: false,
     };
     _streamTTS.allReceived = false;
@@ -2781,43 +2780,64 @@
   }
 
   function autoPlayStreamFeed(text) {
-    if (!_autoPlayStream) return;
+    if (!autoPlayTTS || !autoPlayTTSReady || !hasWorkerTTS()) return;
     if (_streamTTS.isStopped) return;
 
-    var plainText = stripMarkdown(text);
-    var segments = splitTextIntoSegments(plainText);
+    // 懒初始化：收到第一句内容时才启动 TTS
+    if (!_autoPlayStream) {
+      stopAllSpeak();
+      resetStreamTTS();
+      _autoPlayStream = {
+        lastSentCharIndex: 0,  // 追踪到文本的哪个字符位置了
+        finished: false,
+      };
+      _streamTTS.allReceived = false;
+      _streamTTS.isPlaying = false;
+      showToast('正在合成语音...');
+      startSynthesisQueue();
+    }
 
-    while (_autoPlayStream.lastSentIndex < segments.length) {
-      var seg = segments[_autoPlayStream.lastSentIndex];
-      if (seg && seg.length >= 20) {
+    var plainText = stripMarkdown(text);
+
+    // 每次只处理新增的部分（从 lastSentCharIndex 之后到文本末尾）
+    var newText = plainText.substring(_autoPlayStream.lastSentCharIndex);
+    if (!newText.trim()) return;
+
+    var sentences = splitTextIntoSegments(newText);
+
+    // 只把有句子结束符的段落送进合成队列
+    for (var i = 0; i < sentences.length; i++) {
+      var seg = sentences[i];
+      var charIndex = plainText.indexOf(seg, _autoPlayStream.lastSentCharIndex);
+      if (charIndex >= 0) {
         _streamTTS.segments.push(seg);
-        _autoPlayStream.lastSentIndex++;
-        _streamTTS.totalSegments = _autoPlayStream.lastSentIndex + 1;
-      } else {
-        break;
+        _autoPlayStream.lastSentCharIndex = charIndex + seg.length;
+        _streamTTS.totalSegments = _streamTTS.totalSegments || 0;
+        _streamTTS.totalSegments++;
       }
     }
 
-    _autoPlayStream.receivedText = plainText;
+    // 如果没有句子结束符但文本够长，也送一段（处理超长单句无标点的情况）
+    if (sentences.length === 0 && newText.length >= 30) {
+      _streamTTS.segments.push(newText);
+      _autoPlayStream.lastSentCharIndex = plainText.length;
+      _streamTTS.totalSegments = _streamTTS.totalSegments || 0;
+      _streamTTS.totalSegments++;
+    }
   }
 
   function autoPlayStreamEnd(finalText) {
     if (!_autoPlayStream) return;
 
     var plainText = stripMarkdown(finalText);
-    var segments = splitTextIntoSegments(plainText);
-    var total = segments.length;
 
-    // 把剩余没送进队列的 segment 追加进去（不要替换，会打乱已在合成的）
-    while (_autoPlayStream.lastSentIndex < total) {
-      var seg = segments[_autoPlayStream.lastSentIndex];
-      if (seg) {
-        _streamTTS.segments.push(seg);
-      }
-      _autoPlayStream.lastSentIndex++;
+    // 把剩余未合成的文本全部送进队列（包括短尾巴）
+    var remainingText = plainText.substring(_autoPlayStream.lastSentCharIndex);
+    if (remainingText.trim()) {
+      _streamTTS.segments.push(remainingText.trim());
+      _streamTTS.totalSegments++;
     }
 
-    _streamTTS.totalSegments = total;
     _streamTTS.allReceived = true;
     _autoPlayStream.finished = true;
   }
@@ -3266,11 +3286,6 @@
     var t0 = Date.now();
     var AUTO_SCROLL_LINE_LIMIT = 12;
     var hasClearedPlaceholder = false;
-
-    // 流式 TTS 自动播报：收到第一句话就开始合成
-    if (autoPlayTTS && autoPlayTTSReady && hasWorkerTTS()) {
-      autoPlayStreamStart();
-    }
 
     // 增量模式状态
     var STREAM_PLAINTEXT_THRESHOLD = 5000; // 超过此长度切换到增量纯文本追加
