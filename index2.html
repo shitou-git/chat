@@ -407,6 +407,12 @@
     opacity: 1;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
   }
+  .speak-btn.is-paused {
+    background: var(--c-primary);
+    color: #fff;
+    opacity: 0.7;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
   /* 移动端：默认显示，避免依赖 hover */
   @media (hover: none) {
     .speak-btn { opacity: 0.95; }
@@ -2471,6 +2477,7 @@
     synthesizedBlobs: [],
     currentPlayIndex: 0,
     isPlaying: false,
+    isPaused: false,
     isStopped: false,
     btnEl: null,
     totalSegments: 0,
@@ -2484,6 +2491,7 @@
     _streamTTS.synthesizedBlobs = [];
     _streamTTS.currentPlayIndex = 0;
     _streamTTS.isPlaying = false;
+    _streamTTS.isPaused = false;
     _streamTTS.isStopped = false;
     _streamTTS.btnEl = null;
     _streamTTS.totalSegments = 0;
@@ -2499,26 +2507,87 @@
     if (_ttsAudio) {
       try { _ttsAudio.pause(); _ttsAudio.currentTime = 0; } catch (e) {}
     }
-    document.querySelectorAll('.speak-btn.is-speaking').forEach(function (b) {
-      b.classList.remove('is-speaking');
+    document.querySelectorAll('.speak-btn.is-speaking, .speak-btn.is-paused').forEach(function (b) {
+      b.classList.remove('is-speaking', 'is-paused');
     });
     _currentSpeakBtn = null;
     hideToast();
+    updateHeaderPlayBtn();
+  }
+
+  function updateHeaderPlayBtn() {
+    var btn = document.getElementById('chatAutoPlayBtn');
+    if (!btn) return;
+    var iconSpan = btn.querySelector('.auto-play-icon');
+    var isActive = _streamTTS.isPlaying || _streamTTS.isPaused;
+    if (_streamTTS.isPlaying) {
+      btn.classList.add('is-active');
+      btn.title = '暂停播报';
+      if (iconSpan) iconSpan.textContent = '⏸';
+    } else if (_streamTTS.isPaused) {
+      btn.classList.add('is-active');
+      btn.title = '继续播报';
+      if (iconSpan) iconSpan.textContent = '▶';
+    } else {
+      btn.classList.remove('is-active');
+      btn.title = autoPlayTTS ? '关闭自动播报' : '开启自动播报';
+      if (iconSpan) iconSpan.textContent = '🔊';
+    }
+  }
+
+  function updateBubblePlayBtn(btnEl, state) {
+    if (!btnEl) return;
+    // state: 'playing' | 'paused' | 'stopped'
+    btnEl.classList.remove('is-speaking', 'is-paused');
+    if (state === 'playing') {
+      btnEl.classList.add('is-speaking');
+      btnEl.innerHTML = '⏸';
+      btnEl.title = '暂停';
+    } else if (state === 'paused') {
+      btnEl.classList.add('is-paused');
+      btnEl.innerHTML = '▶';
+      btnEl.title = '继续';
+    } else {
+      btnEl.innerHTML = '🔊';
+      btnEl.title = '朗读';
+    }
+  }
+
+  function pauseStreamTTS() {
+    if (_streamTTS.audioEl) {
+      try { _streamTTS.audioEl.pause(); } catch (e) {}
+    }
+    _streamTTS.isPaused = true;
+    _streamTTS.isPlaying = false;
+    updateBubblePlayBtn(_streamTTS.btnEl, 'paused');
+    updateHeaderPlayBtn();
+  }
+
+  function resumeStreamTTS() {
+    _streamTTS.isPaused = false;
+    _streamTTS.isPlaying = true;
+    if (_streamTTS.audioEl) {
+      _streamTTS.audioEl.play().catch(function (e) {
+        console.error('[StreamTTS] 恢复播放失败：', e);
+      });
+    }
+    updateBubblePlayBtn(_streamTTS.btnEl, 'playing');
+    updateHeaderPlayBtn();
   }
 
   function stopStreamTTS() {
     _streamTTS.isStopped = true;
+    _streamTTS.isPaused = false;
     for (var i = 0; i < _streamTTS.abortControllers.length; i++) {
       try { _streamTTS.abortControllers[i].abort(); } catch (e) {}
     }
     if (_streamTTS.audioEl) {
       try { _streamTTS.audioEl.pause(); } catch (e) {}
     }
-    if (_streamTTS.btnEl) {
-      _streamTTS.btnEl.classList.remove('is-speaking');
-    }
+    updateBubblePlayBtn(_streamTTS.btnEl, 'stopped');
     _autoPlayStream = null;
     _currentSpeakBtn = null;
+    updateHeaderPlayBtn();
     hideToast();
   }
 
@@ -2630,21 +2699,25 @@
 
   function playNextSegment() {
     if (_streamTTS.isStopped) return;
+    if (_streamTTS.isPaused) return;
 
     var idx = _streamTTS.currentPlayIndex;
     var blob = _streamTTS.synthesizedBlobs[idx];
 
     if (!blob) {
       if (_streamTTS.allReceived && idx >= _streamTTS.totalSegments) {
-        if (_streamTTS.btnEl) {
-          _streamTTS.btnEl.classList.remove('is-speaking');
-        }
+        updateBubblePlayBtn(_streamTTS.btnEl, 'stopped');
         _currentSpeakBtn = null;
         hideToast();
         _streamTTS.isPlaying = false;
+        updateHeaderPlayBtn();
       }
       return;
     }
+
+    _streamTTS.isPlaying = true;
+    updateBubblePlayBtn(_streamTTS.btnEl, 'playing');
+    updateHeaderPlayBtn();
 
     var url = URL.createObjectURL(blob);
     if (!_streamTTS.audioEl) {
@@ -2744,7 +2817,7 @@
     resetStreamTTS();
     _streamTTS.btnEl = btnEl;
     if (btnEl) {
-      btnEl.classList.add('is-speaking');
+      updateBubblePlayBtn(btnEl, 'playing');
       _currentSpeakBtn = btnEl;
     }
 
@@ -3135,6 +3208,20 @@
     btn.innerHTML = "🔊";
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
+
+      // 自动播报开启时：暂停/继续切换
+      if (autoPlayTTS && autoPlayTTSReady && (_streamTTS.isPlaying || _streamTTS.isPaused)) {
+        if (_streamTTS.isPlaying) {
+          pauseStreamTTS();
+        } else {
+          resumeStreamTTS();
+        }
+        return;
+      }
+
+      // 停止当前播报
+      stopAllSpeak();
+
       var plain;
       if (typeof rawText === "string" && rawText.length > 0) {
         plain = stripMarkdown(rawText);
@@ -3889,17 +3976,19 @@
     var AUTO_PLAY_KEY = "lingzhi_auto_play";
     function applyAutoPlay(enabled) {
       autoPlayTTS = !!enabled;
-      if (chatAutoPlayBtn) {
-        if (autoPlayTTS) {
-          chatAutoPlayBtn.classList.add("is-active");
-          chatAutoPlayBtn.title = "关闭自动播报";
-        } else {
-          chatAutoPlayBtn.classList.remove("is-active");
-          chatAutoPlayBtn.title = "开启自动播报";
-        }
-      }
+      updateHeaderPlayBtn();
     }
     function toggleAutoPlay() {
+      // 如果有音频在播放或暂停，点击 = 暂停/继续/停止控制
+      if (_streamTTS.isPlaying || _streamTTS.isPaused) {
+        if (_streamTTS.isPlaying) {
+          pauseStreamTTS();
+        } else {
+          resumeStreamTTS();
+        }
+        return;
+      }
+      // 否则 = 切换自动播报开关
       applyAutoPlay(!autoPlayTTS);
       try { localStorage.setItem(AUTO_PLAY_KEY, autoPlayTTS ? "1" : "0"); } catch (e) {}
     }
