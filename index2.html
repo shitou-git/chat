@@ -2511,7 +2511,7 @@
 
       fetch(CONFIG.TTS_WORKER_URL, {
         method: "POST",
-        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        headers: { "Content-Type": "application/json;charset=UTF-8" },
         signal: ac.signal,
         body: JSON.stringify({
           text: trimmed,
@@ -2522,11 +2522,20 @@
       }).then(function (resp) {
         clearTimeout(tid);
         if (_speakStopped) return null;
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        if (!resp.ok) {
+          return resp.text().then(function (errText) {
+            console.error("[TTS Worker] 请求失败：", resp.status, errText);
+            throw new Error("HTTP " + resp.status + " - " + (errText || "无详情"));
+          }).catch(function (e) {
+            if (e.name === "Error") throw e;
+            throw new Error("HTTP " + resp.status);
+          });
+        }
         return resp.blob();
       }).then(function (blob) {
         if (_speakStopped) return null;
         if (!blob || blob.size === 0) throw new Error("返回空音频");
+        console.log("[TTS Worker] 合成成功，音频大小：", blob.size, "字节，类型：", blob.type);
         var url = URL.createObjectURL(blob);
         if (!_ttsAudio) {
           _ttsAudio = new Audio();
@@ -2548,6 +2557,7 @@
         hideToast();
       }).catch(function (err) {
         clearTimeout(tid);
+        console.error("[TTS Worker] 第 " + attemptNum + " 次尝试失败：", err);
         if (_speakStopped) return; // 用户已停止，不重试
         if (attemptNum < MAX_RETRIES) {
           // 指数退避重试
