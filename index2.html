@@ -2605,14 +2605,15 @@
 
     var segments = [];
     var current = '';
-    var MIN_SEG_LEN = 20;
+    var MIN_SEG_LEN = 60;  // 至少60字才成一段，减少碎片
+    // 只用句号、问号、感叹号作为分割点，分号、逗号不分割
+    var sentenceEndings = ['。', '！', '？', '!', '?'];
 
     for (var i = 0; i < cleaned.length; i++) {
       var ch = cleaned[i];
       current += ch;
 
       var isSentenceEnd = false;
-      var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';', '…'];
       for (var j = 0; j < sentenceEndings.length; j++) {
         if (ch === sentenceEndings[j]) {
           isSentenceEnd = true;
@@ -2620,24 +2621,17 @@
         }
       }
 
-      if (ch === '\n') {
-        var nextCh = cleaned[i + 1];
-        if (nextCh === '\n' || current.trim().length >= MIN_SEG_LEN) {
-          isSentenceEnd = true;
+      if (isSentenceEnd) {
+        if (current.trim().length >= MIN_SEG_LEN) {
+          segments.push(current.trim());
+          current = '';
         }
-      }
-
-      if (isSentenceEnd && current.trim().length >= MIN_SEG_LEN) {
-        var trimmed = current.trim();
-        if (trimmed) {
-          segments.push(trimmed);
-        }
-        current = '';
+        // 不够长就继续累积，等下一个句子
       }
     }
 
     var tail = current.trim();
-    if (tail) {
+    if (tail && tail.length >= 20) {
       segments.push(tail);
     }
 
@@ -3224,7 +3218,16 @@
     // 13) HTML 标签 <tag>...</tag>
     t = t.replace(/<[^>]+>/g, "");
 
-    // 14) 清理多余空白
+    // 14) 单独残留的星号 *（不是配对的 **）
+    t = t.replace(/(?<!\*)\*(?!\*)/g, "");
+
+    // 15) Emoji 和特殊符号（保留中文标点）
+    t = t.replace(/[\u{1F300}-\u{1F9FF}]/gu, "");  // 各种 emoji
+    t = t.replace(/[\u{2600}-\u{26FF}]/gu, "");   // 杂项符号
+    t = t.replace(/[\u{2700}-\u{27BF}]/gu, "");   // 装饰符号
+    t = t.replace(/[⭐⭐⭐⭐⭐]/g, "");             // 星星等常见符号
+
+    // 16) 清理多余空白
     t = t.replace(/\n{3,}/g, "\n\n").trim();
 
     return t;
