@@ -2854,21 +2854,47 @@
 
   function autoPlayStreamFeed(text) {
     if (!autoPlayTTS || !autoPlayTTSReady || !hasWorkerTTS()) return;
-    if (_streamTTS.isStopped) return;
 
     // 懒初始化：收到第一句内容时才启动 TTS
     if (!_autoPlayStream) {
-      stopAllSpeak();
-      resetStreamTTS();
+      // 清理之前的播放状态和按钮状态
+      if (_streamTTS.audioEl) {
+        try { _streamTTS.audioEl.pause(); _streamTTS.audioEl.src = ''; } catch (e) {}
+        _streamTTS.audioEl = null;
+      }
+      for (var i = 0; i < _streamTTS.abortControllers.length; i++) {
+        try { _streamTTS.abortControllers[i].abort(); } catch (e) {}
+      }
+      _streamTTS.abortControllers = [];
+      _streamTTS.segments = [];
+      _streamTTS.synthesizedBlobs = [];
+      _streamTTS.currentPlayIndex = 0;
+      _streamTTS.isPlaying = false;
+      _streamTTS.isPaused = false;
+      _streamTTS.isStopped = false;
+      _streamTTS.totalSegments = 0;
+      _streamTTS.allReceived = false;
+      document.querySelectorAll('.speak-btn.is-speaking, .speak-btn.is-paused').forEach(function (b) {
+        b.classList.remove('is-speaking', 'is-paused');
+        b.innerHTML = '🔊';
+        b.title = '朗读';
+      });
+      if (_ttsAudio) {
+        try { _ttsAudio.pause(); _ttsAudio.currentTime = 0; } catch (e) {}
+      }
+      hideToast();
+
       _autoPlayStream = {
-        lastSentCharIndex: 0,  // 追踪到文本的哪个字符位置了
+        lastSentCharIndex: 0,
         finished: false,
       };
-      _streamTTS.allReceived = false;
-      _streamTTS.isPlaying = false;
+      _currentSpeakBtn = null;
+      updateHeaderPlayBtn();
       showToast('正在合成语音...');
       startSynthesisQueue();
     }
+
+    if (_streamTTS.isStopped) return;
 
     var plainText = stripMarkdown(text);
 
@@ -3442,7 +3468,8 @@
       lastAppendTs = nowTs;
 
       // 流式 TTS 投喂：把已收到的完整句子送去合成
-      if (autoPlayTTS && autoPlayTTSReady && hasWorkerTTS() && _autoPlayStream) {
+      // 注意：不需要检查 _autoPlayStream 是否存在，autoPlayStreamFeed 内部会懒初始化
+      if (autoPlayTTS && autoPlayTTSReady && hasWorkerTTS() && !_streamTTS.isStopped) {
         autoPlayStreamFeed(fullContent);
       }
 
