@@ -2519,18 +2519,25 @@
     var btn = document.getElementById('chatAutoPlayBtn');
     if (!btn) return;
     var iconSpan = btn.querySelector('.auto-play-icon');
-    var isActive = _streamTTS.isPlaying || _streamTTS.isPaused;
     if (_streamTTS.isPlaying) {
+      // 播放中：紫色高亮 + 暂停图标
       btn.classList.add('is-active');
       btn.title = '暂停播报';
       if (iconSpan) iconSpan.textContent = '⏸';
     } else if (_streamTTS.isPaused) {
+      // 暂停中：紫色高亮 + 继续图标
       btn.classList.add('is-active');
       btn.title = '继续播报';
       if (iconSpan) iconSpan.textContent = '▶';
+    } else if (autoPlayTTS) {
+      // 空闲 + 自动播报开启：紫色高亮 + 喇叭图标
+      btn.classList.add('is-active');
+      btn.title = '关闭自动播报';
+      if (iconSpan) iconSpan.textContent = '🔊';
     } else {
+      // 空闲 + 自动播报关闭：暗淡 + 喇叭图标
       btn.classList.remove('is-active');
-      btn.title = autoPlayTTS ? '关闭自动播报' : '开启自动播报';
+      btn.title = '开启自动播报';
       if (iconSpan) iconSpan.textContent = '🔊';
     }
   }
@@ -3235,25 +3242,25 @@
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
 
-      // 自动播报开启时：暂停/继续切换
-      if (autoPlayTTS && autoPlayTTSReady && (_streamTTS.isPlaying || _streamTTS.isPaused)) {
-        if (_streamTTS.isPlaying) {
-          pauseStreamTTS();
-        } else {
-          resumeStreamTTS();
-        }
-        return;
-      }
-
-      // 停止当前播报
-      stopAllSpeak();
-
       var plain;
       if (typeof rawText === "string" && rawText.length > 0) {
         plain = stripMarkdown(rawText);
       } else {
         plain = bubble.textContent || bubble.innerText || "";
       }
+
+      // 如果正在播放的就是这条消息：暂停/继续切换
+      if (_currentSpeakBtn === btn) {
+        if (_streamTTS.isPlaying) {
+          pauseStreamTTS();
+        } else if (_streamTTS.isPaused) {
+          resumeStreamTTS();
+        }
+        return;
+      }
+
+      // 否则：停止之前的，合成播放这条新的
+      stopAllSpeak();
       speakText(plain, btn);
     });
     bubble.appendChild(btn);
@@ -4006,7 +4013,7 @@
       updateHeaderPlayBtn();
     }
     function toggleAutoPlay() {
-      // 如果有音频在播放或暂停，点击 = 暂停/继续/停止控制
+      // 正在播报时：点击 = 暂停/继续
       if (_streamTTS.isPlaying || _streamTTS.isPaused) {
         if (_streamTTS.isPlaying) {
           pauseStreamTTS();
@@ -4015,7 +4022,7 @@
         }
         return;
       }
-      // 否则 = 切换自动播报开关
+      // 空闲时：切换自动播报开关
       applyAutoPlay(!autoPlayTTS);
       try { localStorage.setItem(AUTO_PLAY_KEY, autoPlayTTS ? "1" : "0"); } catch (e) {}
     }
