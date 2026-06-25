@@ -2462,8 +2462,376 @@
     }
   }
 
+  /* ================================================================
+   * 流式 TTS：分段合成 + 顺序播放
+   * ================================================================ */
+
+  var _streamTTS = {
+    segments: [],
+    synthesizedBlobs: [],
+    currentPlayIndex: 0,
+    isPlaying: false,
+    isStopped: false,
+    btnEl: null,
+    totalSegments: 0,
+    allReceived: false,
+    audioEl: null,
+    abortControllers: [],
+  };
+
+  function resetStreamTTS() {
+    _streamTTS.segments = [];
+    _streamTTS.synthesizedBlobs = [];
+    _streamTTS.currentPlayIndex = 0;
+    _streamTTS.isPlaying = false;
+    _streamTTS.isStopped = false;
+    _streamTTS.btnEl = null;
+    _streamTTS.totalSegments = 0;
+    _streamTTS.allReceived = false;
+    if (_streamTTS.audioEl) {
+      try { _streamTTS.audioEl.pause(); _streamTTS.audioEl.src = ''; } catch (e) {}
+      _streamTTS.audioEl = null;
+    }
+    for (var i = 0; i < _streamTTS.abortControllers.length; i++) {
+      try { _streamTTS.abortControllers[i].abort(); } catch (e) {}
+    }
+    _streamTTS.abortControllers = [];
+    if (_ttsAudio) {
+      try { _ttsAudio.pause(); _ttsAudio.currentTime = 0; } catch (e) {}
+    }
+    document.querySelectorAll('.speak-btn.is-speaking').forEach(function (b) {
+      b.classList.remove('is-speaking');
+    });
+    _currentSpeakBtn = null;
+    hideToast();
+  }
+
+  function stopStreamTTS() {
+    _streamTTS.isStopped = true;
+    for (var i = 0; i < _streamTTS.abortControllers.length; i++) {
+      try { _streamTTS.abortControllers[i].abort(); } catch (e) {}
+    }
+    if (_streamTTS.audioEl) {
+      try { _streamTTS.audioEl.pause(); } catch (e) {}
+    }
+    if (_streamTTS.btnEl) {
+      _streamTTS.btnEl.classList.remove('is-speaking');
+    }
+    _autoPlayStream = null;
+    _currentSpeakBtn = null;
+    hideToast();
+  }
+
+  function splitTextIntoSegments(text) {
+    if (!text) return [];
+    var cleaned = text.replace(/\r\n/g, '\n').trim();
+    if (!cleaned) return [];
+
+    var segments = [];
+    var current = '';
+    var MIN_SEG_LEN = 40;
+
+    for (var i = 0; i < cleaned.length; i++) {
+      var ch = cleaned[i];
+      current += ch;
+
+      var isSentenceEnd = false;
+      var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';', '…'];
+      for (var j = 0; j < sentenceEndings.length; j++) {
+        if (ch === sentenceEndings[j]) {
+          isSentenceEnd = true;
+          break;
+        }
+      }
+
+      if (ch === '\n') {
+        var nextCh = cleaned[i + 1];
+        if (nextCh === '\n' || current.trim().length >= MIN_SEG_LEN) {
+          isSentenceEnd = true;
+        }
+      }
+
+      if (isSentenceEnd && current.trim().length >= MIN_SEG_LEN) {
+        var trimmed = current.trim();
+        if (trimmed) {
+          segments.push(trimmed);
+        }
+        current = '';
+      }
+    }
+
+    var tail = current.trim();
+    if (tail) {
+      segments.push(tail);
+    }
+
+    return segments;
+  }
+
+  function synthesizeSegmentWorker(text, index) {
+    return new Promise(function (resolve, reject) {
+      if (_streamTTS.isStopped) { reject(new Error('stopped')); return; }
+
+      var ac = new AbortController();
+      _streamTTS.abortControllers.push(ac);
+
+      var MAX_RETRIES = 2;
+      var retryDelay = 1000;
+
+      function attempt(attemptNum) {
+        if (_streamTTS.isStopped) { reject(new Error('stopped')); return; }
+
+        var tid = setTimeout(function () { ac.abort(); }, 15000);
+
+        fetch(CONFIG.TTS_WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+          signal: ac.signal,
+          body: JSON.stringify({
+            text: text,
+            voice: 'zh-CN-YunxiNeural',
+            rate: 0,
+            pitch: 0,
+            format: 'audio-24khz-48kbitrate-mono-mp3',
+          }),
+        }).then(function (resp) {
+          clearTimeout(tid);
+          if (_streamTTS.isStopped) { reject(new Error('stopped')); return; }
+          if (!resp.ok) {
+            return resp.text().then(function (errText) {
+              console.error('[StreamTTS] 第' + index + '段合成失败：', resp.status, errText);
+              throw new Error('HTTP ' + resp.status);
+            }).catch(function (e) {
+              if (e.name === 'Error') throw e;
+              throw new Error('HTTP ' + resp.status);
+            });
+          }
+          return resp.blob();
+        }).then(function (blob) {
+          if (_streamTTS.isStopped) { reject(new Error('stopped')); return; }
+          if (!blob || blob.size === 0) throw new Error('空音频');
+          console.log('[StreamTTS] 第' + index + '段合成完成，' + blob.size + '字节');
+          resolve({ index: index, blob: blob });
+        }).catch(function (err) {
+          clearTimeout(tid);
+          if (_streamTTS.isStopped) { reject(new Error('stopped')); return; }
+          if (err.name === 'AbortError') { reject(new Error('stopped')); return; }
+          if (attemptNum < MAX_RETRIES) {
+            setTimeout(function () { attempt(attemptNum + 1); }, retryDelay * attemptNum);
+          } else {
+            reject(err);
+          }
+        });
+      }
+
+      attempt(1);
+    });
+  }
+
+  function playNextSegment() {
+    if (_streamTTS.isStopped) return;
+
+    var idx = _streamTTS.currentPlayIndex;
+    var blob = _streamTTS.synthesizedBlobs[idx];
+
+    if (!blob) {
+      if (_streamTTS.allReceived && idx >= _streamTTS.totalSegments) {
+        if (_streamTTS.btnEl) {
+          _streamTTS.btnEl.classList.remove('is-speaking');
+        }
+        _currentSpeakBtn = null;
+        hideToast();
+        _streamTTS.isPlaying = false;
+      }
+      return;
+    }
+
+    var url = URL.createObjectURL(blob);
+    if (!_streamTTS.audioEl) {
+      _streamTTS.audioEl = new Audio();
+      _streamTTS.audioEl.addEventListener('ended', function () {
+        URL.revokeObjectURL(url);
+        _streamTTS.currentPlayIndex++;
+        playNextSegment();
+      });
+      _streamTTS.audioEl.addEventListener('error', function () {
+        console.error('[StreamTTS] 播放失败');
+        _streamTTS.currentPlayIndex++;
+        playNextSegment();
+      });
+    }
+    _streamTTS.audioEl.src = url;
+    _streamTTS.audioEl.play().catch(function (e) {
+      console.error('[StreamTTS] 播放错误：', e);
+      _streamTTS.currentPlayIndex++;
+      playNextSegment();
+    });
+  }
+
+  function startSynthesisQueue() {
+    var MAX_CONCURRENT = 3;
+    var activeCount = 0;
+    var nextIndex = 0;
+    var waitingForMore = false;
+
+    function processOne() {
+      if (_streamTTS.isStopped) return;
+      if (_streamTTS.segments.length === 0) {
+        if (_streamTTS.allReceived) return;
+        if (!waitingForMore) {
+          waitingForMore = true;
+          setTimeout(function () {
+            waitingForMore = false;
+            tryFill();
+          }, 200);
+        }
+        return;
+      }
+
+      var seg = _streamTTS.segments.shift();
+      var idx = nextIndex++;
+      _streamTTS.synthesizedBlobs.push(null);
+      activeCount++;
+
+      synthesizeSegmentWorker(seg, idx).then(function (result) {
+        if (_streamTTS.isStopped) return;
+        _streamTTS.synthesizedBlobs[result.index] = result.blob;
+
+        if (!_streamTTS.isPlaying && result.index === 0) {
+          _streamTTS.isPlaying = true;
+          hideToast();
+          playNextSegment();
+        } else if (_streamTTS.isPlaying && result.index === _streamTTS.currentPlayIndex) {
+          playNextSegment();
+        }
+      }).catch(function (err) {
+        if (err.message === 'stopped') return;
+        console.error('[StreamTTS] 合成失败：', err);
+        _streamTTS.synthesizedBlobs[idx] = null;
+        if (_streamTTS.isPlaying && idx === _streamTTS.currentPlayIndex) {
+          _streamTTS.currentPlayIndex++;
+          playNextSegment();
+        }
+      }).then(function () {
+        activeCount--;
+        tryFill();
+      });
+    }
+
+    function tryFill() {
+      if (_streamTTS.isStopped) return;
+      while (activeCount < MAX_CONCURRENT) {
+        if (_streamTTS.segments.length === 0 && !_streamTTS.allReceived) {
+          if (!waitingForMore) {
+            waitingForMore = true;
+            setTimeout(function () {
+              waitingForMore = false;
+              tryFill();
+            }, 200);
+          }
+          break;
+        }
+        if (_streamTTS.segments.length === 0 && _streamTTS.allReceived) break;
+        processOne();
+      }
+    }
+
+    tryFill();
+  }
+
+  function streamSpeakWorker(text, btnEl) {
+    stopAllSpeak();
+    resetStreamTTS();
+    _streamTTS.btnEl = btnEl;
+    if (btnEl) {
+      btnEl.classList.add('is-speaking');
+      _currentSpeakBtn = btnEl;
+    }
+
+    var plainText = stripMarkdown(text);
+    var segments = splitTextIntoSegments(plainText);
+    if (segments.length === 0) return;
+
+    _streamTTS.totalSegments = segments.length;
+    _streamTTS.allReceived = true;
+    _streamTTS.segments = segments;
+
+    showToast('正在合成语音...');
+    startSynthesisQueue();
+  }
+
+  var _autoPlayStream = null;
+
+  function autoPlayStreamStart() {
+    if (!autoPlayTTS || !autoPlayTTSReady) return;
+    if (!hasWorkerTTS()) return;
+
+    stopAllSpeak();
+    resetStreamTTS();
+    _autoPlayStream = {
+      receivedText: '',
+      lastSentIndex: 0,
+      finished: false,
+    };
+    _streamTTS.allReceived = false;
+    _streamTTS.isPlaying = false;
+
+    showToast('正在合成语音...');
+    startSynthesisQueue();
+  }
+
+  function autoPlayStreamFeed(text) {
+    if (!_autoPlayStream) return;
+    if (_streamTTS.isStopped) return;
+
+    var plainText = stripMarkdown(text);
+    var segments = splitTextIntoSegments(plainText);
+
+    while (_autoPlayStream.lastSentIndex < segments.length) {
+      var seg = segments[_autoPlayStream.lastSentIndex];
+      if (seg && seg.length >= 20) {
+        _streamTTS.segments.push(seg);
+        _autoPlayStream.lastSentIndex++;
+        _streamTTS.totalSegments = _autoPlayStream.lastSentIndex + 1;
+      } else {
+        break;
+      }
+    }
+
+    _autoPlayStream.receivedText = plainText;
+  }
+
+  function autoPlayStreamEnd(finalText) {
+    if (!_autoPlayStream) return;
+
+    var plainText = stripMarkdown(finalText);
+    var segments = splitTextIntoSegments(plainText);
+    var total = segments.length;
+
+    // 把剩余没送进队列的 segment 追加进去（不要替换，会打乱已在合成的）
+    while (_autoPlayStream.lastSentIndex < total) {
+      var seg = segments[_autoPlayStream.lastSentIndex];
+      if (seg) {
+        _streamTTS.segments.push(seg);
+      }
+      _autoPlayStream.lastSentIndex++;
+    }
+
+    _streamTTS.totalSegments = total;
+    _streamTTS.allReceived = true;
+    _autoPlayStream.finished = true;
+  }
+
+  function autoPlayStreamStop() {
+    if (_autoPlayStream) {
+      stopStreamTTS();
+      _autoPlayStream = null;
+    }
+  }
+
   /** 停止当前所有播报（Web Speech + Worker audio） */
   function stopAllSpeak() {
+    stopStreamTTS();
     // 停 Web Speech
     if (hasTTSAPI()) {
       try { window.speechSynthesis.cancel(); } catch (e) {}
@@ -2655,7 +3023,7 @@
   }
 
   /** 朗读文字；再次点击则停止。
-   *  策略：有 Worker TTS → 走 Worker（微信可用）；否则走 Web Speech API（带超时降级）。
+   *  策略：有 Worker TTS → 走流式分段合成；否则走 Web Speech API（带超时降级）。
    */
   function speakText(plainText, btnEl) {
     if (btnEl && _currentSpeakBtn === btnEl) {
@@ -2667,9 +3035,9 @@
     var trimmed = (plainText || "").trim();
     if (!trimmed) return;
 
-    // 优先 Worker TTS（微信内也能用）
+    // 优先 Worker TTS（流式分段合成，微信内也能用）
     if (hasWorkerTTS()) {
-      speakViaWorker(trimmed, btnEl);
+      streamSpeakWorker(trimmed, btnEl);
       return;
     }
 
@@ -2899,6 +3267,11 @@
     var AUTO_SCROLL_LINE_LIMIT = 12;
     var hasClearedPlaceholder = false;
 
+    // 流式 TTS 自动播报：收到第一句话就开始合成
+    if (autoPlayTTS && autoPlayTTSReady && hasWorkerTTS()) {
+      autoPlayStreamStart();
+    }
+
     // 增量模式状态
     var STREAM_PLAINTEXT_THRESHOLD = 5000; // 超过此长度切换到增量纯文本追加
     var streamMode = "light";              // "light" | "plaintext"
@@ -2965,6 +3338,11 @@
 
       pendingText = "";
       lastAppendTs = nowTs;
+
+      // 流式 TTS 投喂：把已收到的完整句子送去合成
+      if (autoPlayTTS && autoPlayTTSReady && hasWorkerTTS() && _autoPlayStream) {
+        autoPlayStreamFeed(fullContent);
+      }
 
       // ===== 滚动控制：长内容时降低滚动频率（scrollHeight 读取触发重排）=====
       if (!force) {
@@ -3132,10 +3510,14 @@
       aiMsgDiv.dataset.msgId = aiMsg.id;
       finalRender(fullContent, aiMsg);
 
-      // 自动播报
+      // 自动播报（流式 TTS 已在过程中合成，这里收尾）
       if (autoPlayTTS && autoPlayTTSReady) {
-        var plainText = stripMarkdown(fullContent);
-        if (plainText) speakText(plainText, null);
+        if (hasWorkerTTS() && _autoPlayStream) {
+          autoPlayStreamEnd(fullContent);
+        } else if (!hasWorkerTTS()) {
+          var plainText = stripMarkdown(fullContent);
+          if (plainText) speakText(plainText, null);
+        }
       }
 
       var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
@@ -3154,10 +3536,14 @@
           var partialMsg = addMessageData("assistant", fullContent);
           aiMsgDiv.dataset.msgId = partialMsg.id;
           finalRender(fullContent, partialMsg);
-          // 自动播报
+          // 自动播报（用户打断的话也停掉 TTS）
           if (autoPlayTTS && autoPlayTTSReady) {
-            var plainText = stripMarkdown(fullContent);
-            if (plainText) speakText(plainText, null);
+            if (hasWorkerTTS() && _autoPlayStream) {
+              autoPlayStreamStop();
+            } else if (!hasWorkerTTS()) {
+              var plainText = stripMarkdown(fullContent);
+              if (plainText) speakText(plainText, null);
+            }
           }
           saveChatHistory();
         } else {
