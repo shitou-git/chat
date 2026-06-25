@@ -3,7 +3,7 @@
  * 包含消息发送、流式渲染、API 调用等核心逻辑
  */
 
-import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW, _ar } from './config.js';
+import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js';
 import { 
   isGenerating, 
   setIsGenerating,
@@ -448,7 +448,6 @@ function doFetch(historyMessages) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer " + _ar(),
     },
     signal: abortController.signal,
     body: JSON.stringify({

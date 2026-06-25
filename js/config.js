@@ -1,14 +1,14 @@
 /**
  * 配置模块
- * 包含 API 配置、密钥混淆、系统提示词等核心配置
+ * 包含 API 配置、系统提示词等核心配置
  */
 
 export const CONFIG = {
-  /** API 端点 */
-  API_URL: "https://apihub.agnes-ai.com/v1/chat/completions",
+  /** 聊天 API 代理地址（Cloudflare Worker） */
+  API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
 
   /**
-   * TTS 代理地址（Cloudflare Worker，部署后填入）。
+   * TTS 代理地址（Cloudflare Worker）。
    * 留空则仅使用浏览器本地 Web Speech API（微信内不可用时会引导外部打开）。
    */
   TTS_WORKER_URL: "https://tts.chatlz.dpdns.org/api/tts",
@@ -31,48 +31,6 @@ export const CONFIG = {
   MAX_TEXTAREA_HEIGHT: 120,
   KATEX_WAIT_TIMEOUT: 5000,
 };
-
-/* ================================================================
- * 凭证混淆层
- *
- * ⚠️ 纯前端无法真正保护密钥，以下为多层混淆以显著提高
- *    逆向提取成本。如需真正安全请使用后端代理。
- *
- * 混淆策略（4 层）：
- *   1. XOR 加密——原始密钥逐字节与掩码异或，非简单编码
- *   2. 分片存储——密文拆成多段 hex，散落在不同数组位置
- *   3. 变量名伪装——函数/变量名不暗示与密钥的关系
- *   4. 运行时拼装——密钥不落变量，用后即弃
- *
- * 更换密钥：运行 keygen.html，粘贴新 Key 即可生成新代码块
- * ================================================================ */
-
-// 第 1 层：密文分片（XOR 后的 hex）
-var _cf = [
-  "0b06140723060567", "3d5a5c02006b2335",
-  "3b596d5f664a383f", "290e502430420711",
-  "31227f3b3a663a37", "0e195d5330574129",
-  "4e0363"
-];
-
-// 第 2 层：掩码（看起来像构建版本号）
-var _bv = "xm9kQ2vP";
-
-// 第 3 层：解码函数
-function _pc(h, k) {
-  var r = "";
-  for (var i = 0; i < h.length; i += 2) {
-    r += String.fromCharCode(
-      parseInt(h.substr(i, 2), 16) ^ k.charCodeAt((i >> 1) % k.length)
-    );
-  }
-  return r;
-}
-
-// 第 4 层：运行时拼装——每次调用重新解密，不缓存到变量
-export function _ar() {
-  return _pc(_cf.join(""), _bv);
-}
 
 /** 系统提示词 */
 export const SYSTEM_PROMPT =
