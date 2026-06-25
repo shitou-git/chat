@@ -2542,6 +2542,22 @@
     }
   }
 
+  /** 重置标题栏按钮到开关状态（保持 autoPlayTTS 的值不变） */
+  function resetHeaderPlayBtnToSwitch() {
+    var btn = document.getElementById('chatAutoPlayBtn');
+    if (!btn) return;
+    var iconSpan = btn.querySelector('.auto-play-icon');
+    if (autoPlayTTS) {
+      btn.classList.add('is-active');
+      btn.title = '关闭自动播报';
+      if (iconSpan) iconSpan.textContent = '🔊';
+    } else {
+      btn.classList.remove('is-active');
+      btn.title = '开启自动播报';
+      if (iconSpan) iconSpan.textContent = '🔊';
+    }
+  }
+
   function updateBubblePlayBtn(btnEl, state) {
     if (!btnEl) return;
     // state: 'playing' | 'paused' | 'stopped'
@@ -3218,16 +3234,23 @@
     // 13) HTML 标签 <tag>...</tag>
     t = t.replace(/<[^>]+>/g, "");
 
-    // 14) 单独残留的星号 *（不是配对的 **）
-    t = t.replace(/(?<!\*)\*(?!\*)/g, "");
+    // 14) 加粗 **bold** 或 __bold__（要先处理，避免嵌套问题）
+    t = t.replace(/\*\*([^*]+)\*\*/g, "$1");
+    t = t.replace(/__([^_]+)__/g, "$1");
 
-    // 15) Emoji 和特殊符号（保留中文标点）
+    // 15) 斜体 *italic* 或 _italic_
+    t = t.replace(/\*([^*]+)\*/g, "$1");
+    t = t.replace(/_([^_]+)_/g, "$1");
+
+    // 16) 所有剩余的星号（包括单独的 * 和列表符号 *）
+    t = t.replace(/\*/g, "");
+
+    // 17) Emoji 和特殊符号（保留中文标点）
     t = t.replace(/[\u{1F300}-\u{1F9FF}]/gu, "");  // 各种 emoji
     t = t.replace(/[\u{2600}-\u{26FF}]/gu, "");   // 杂项符号
     t = t.replace(/[\u{2700}-\u{27BF}]/gu, "");   // 装饰符号
-    t = t.replace(/[⭐⭐⭐⭐⭐]/g, "");             // 星星等常见符号
 
-    // 16) 清理多余空白
+    // 18) 清理多余空白
     t = t.replace(/\n{3,}/g, "\n\n").trim();
 
     return t;
@@ -3321,6 +3344,10 @@
     chatInput.value = "";
     chatInput.style.height = "auto";
     toggleSendButton(true);
+
+    // 停止当前的 TTS 播放，并重置标题栏按钮到开关状态
+    stopAllSpeak();
+    resetHeaderPlayBtnToSwitch();
 
     // 移除空状态
     var emptyTip = chatMessages.querySelector(".chat-empty-tip");
