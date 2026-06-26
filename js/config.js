@@ -7,6 +7,9 @@ export const CONFIG = {
   /** 聊天 API 代理地址（Cloudflare Worker） */
   API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
 
+  /** 用户认证与数据同步 API 地址（Cloudflare Worker D1） */
+  API_BASE_URL: "https://chat-app-db.chatlz.dpdns.org",
+
   /**
    * TTS 代理地址（Cloudflare Worker）。
    * 留空则仅使用浏览器本地 Web Speech API（微信内不可用时会引导外部打开）。
@@ -17,6 +20,9 @@ export const CONFIG = {
   STORAGE_KEY: "ai_chat_sessions",
   THEME_STORAGE_KEY: "lingzhi_theme",
   AUTO_PLAY_KEY: "lingzhi_auto_play",
+  TOKEN_KEY: "lingzhi_token",
+  USER_KEY: "lingzhi_user",
+  GUEST_MSG_KEY: "lingzhi_guest_msg_count",
 
   /** 模型配置 */
   MODEL: "agnes-2.0-flash",

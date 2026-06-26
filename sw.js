@@ -6,7 +6,7 @@
  * - API 请求：仅网络，不缓存
  * ============================================================ */
  
-const CACHE_VERSION = "lingzhi-v45";
+const CACHE_VERSION = "lingzhi-v46";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
@@ -120,6 +120,11 @@ self.addEventListener("fetch", function (event) {
     return;
   }
  
+  // 跳过非 http/https 请求（如 chrome-extension:// 等浏览器扩展请求）
+  if (!req.url.startsWith("http")) {
+    return;
+  }
+
   // 3) 其他静态资源：Cache First，命中失败回源
   event.respondWith(
     caches.match(req).then(function (cached) {
