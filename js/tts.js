@@ -1,22 +1,22 @@
-/**
+﻿/**
  * TTS 语音播报模块
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
-
-import { CONFIG } from './config.js';
-import { stripMarkdown } from './utils.js';
-import { autoPlayTTS, autoPlayTTSReady } from './state.js';
-
+ 
+import { CONFIG } from './config.js?v=45';
+import { stripMarkdown } from './utils.js?v=45';
+import { state } from './state.js?v=45';
+ 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
 export var _autoPlayStream = null;
-
+ 
 // ================================================================
 // Toast 提示
 // ================================================================
-
+ 
 var _toastTimer = null;
-
+ 
 export function showToast(msg, duration) {
   var toast = document.getElementById("ttsToast");
   if (!toast) {
@@ -35,33 +35,33 @@ export function showToast(msg, duration) {
   }
   return toast;
 }
-
+ 
 export function hideToast() {
   var toast = document.getElementById("ttsToast");
   if (toast) toast.classList.remove("show");
   if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
 }
-
+ 
 // ================================================================
 // TTS 检测
 // ================================================================
-
+ 
 export function isWeChatBrowser() {
   try {
     var ua = (navigator.userAgent || "").toLowerCase();
     return ua.indexOf("micromessenger") !== -1;
   } catch (e) { return false; }
 }
-
+ 
 export function hasTTSAPI() {
   return typeof window.speechSynthesis !== "undefined" &&
          typeof window.SpeechSynthesisUtterance !== "undefined";
 }
-
+ 
 export function hasWorkerTTS() {
   return !!CONFIG.TTS_WORKER_URL;
 }
-
+ 
 export function showTTSUnavailable() {
   if (isWeChatBrowser()) {
     showToast("微信内暂不支持语音播报，请点右上角「···」→「在浏览器打开」，用系统浏览器打开后即可朗读");
@@ -69,14 +69,14 @@ export function showTTSUnavailable() {
     showToast("当前浏览器不支持语音播报，可长按消息复制文字");
   }
 }
-
+ 
 // ================================================================
 // 中文语音初始化
 // ================================================================
-
+ 
 var _zhVoice = null;
 var _voicesReady = false;
-
+ 
 export function initVoices() {
   if (!hasTTSAPI()) return;
   var synth = window.speechSynthesis;
@@ -103,11 +103,11 @@ export function initVoices() {
     }
   } catch (e) {}
 }
-
+ 
 // ================================================================
 // 流式 TTS
 // ================================================================
-
+ 
 export function initStreamTTS() {
   _streamTTS = {
     segments: [],
@@ -123,7 +123,7 @@ export function initStreamTTS() {
     abortControllers: [],
   };
 }
-
+ 
 export function resetStreamTTS() {
   if (!_streamTTS) return;
   _streamTTS.segments = [];
@@ -147,10 +147,11 @@ export function resetStreamTTS() {
     b.classList.remove('is-speaking', 'is-paused');
   });
   _currentSpeakBtn = null;
+  _synthesisQueue = null;
   hideToast();
   updateHeaderPlayBtn();
 }
-
+ 
 export function updateHeaderPlayBtn() {
   var btn = document.getElementById('chatAutoPlayBtn');
   if (!btn) return;
@@ -163,7 +164,7 @@ export function updateHeaderPlayBtn() {
     btn.classList.add('is-active');
     btn.title = '继续播报';
     if (iconSpan) iconSpan.textContent = '▶';
-  } else if (autoPlayTTS) {
+  } else if (state.autoPlayTTS) {
     btn.classList.add('is-active');
     btn.title = '关闭自动播报';
     if (iconSpan) iconSpan.textContent = '🔊';
@@ -173,7 +174,7 @@ export function updateHeaderPlayBtn() {
     if (iconSpan) iconSpan.textContent = '🔊';
   }
 }
-
+ 
 export function updateBubblePlayBtn(btnEl, state) {
   if (!btnEl) return;
   btnEl.classList.remove('is-speaking', 'is-paused');
@@ -190,7 +191,7 @@ export function updateBubblePlayBtn(btnEl, state) {
     btnEl.title = '朗读';
   }
 }
-
+ 
 export function pauseStreamTTS() {
   if (_streamTTS && _streamTTS.audioEl) {
     try { _streamTTS.audioEl.pause(); } catch (e) {}
@@ -202,7 +203,7 @@ export function pauseStreamTTS() {
     updateHeaderPlayBtn();
   }
 }
-
+ 
 export function resumeStreamTTS() {
   if (_streamTTS) {
     _streamTTS.isPaused = false;
@@ -216,7 +217,7 @@ export function resumeStreamTTS() {
     updateHeaderPlayBtn();
   }
 }
-
+ 
 export function stopStreamTTS() {
   if (!_streamTTS) return;
   _streamTTS.isStopped = true;
@@ -233,25 +234,35 @@ export function stopStreamTTS() {
   updateHeaderPlayBtn();
   hideToast();
 }
-
+ 
 // ================================================================
 // 文本分段
 // ================================================================
-
+ 
 export function splitTextIntoSegments(text) {
   if (!text) return [];
   var cleaned = text.replace(/\r\n/g, '\n').trim();
   if (!cleaned) return [];
-
+ 
   var segments = [];
   var current = '';
-  var MIN_SEG_LEN = 60;
-  var sentenceEndings = ['。', '！', '？', '!', '?'];
-
+  var MIN_SEG_LEN = 20;
+  var MAX_SEG_LEN = 100;
+  var STRONG_ENDING_MIN_LEN = 8;
+  var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';', '，', ','];
+  var strongEndings = ['。', '！', '？', '!', '?'];
+ 
+  function isStrongEnding(ch) {
+    for (var k = 0; k < strongEndings.length; k++) {
+      if (ch === strongEndings[k]) return true;
+    }
+    return false;
+  }
+ 
   for (var i = 0; i < cleaned.length; i++) {
     var ch = cleaned[i];
     current += ch;
-
+ 
     var isSentenceEnd = false;
     for (var j = 0; j < sentenceEndings.length; j++) {
       if (ch === sentenceEndings[j]) {
@@ -259,42 +270,57 @@ export function splitTextIntoSegments(text) {
         break;
       }
     }
-
+ 
     if (isSentenceEnd) {
-      if (current.trim().length >= MIN_SEG_LEN) {
+      var curLen = current.trim().length;
+      var canSplit = false;
+      if (curLen >= MIN_SEG_LEN) {
+        canSplit = true;
+      } else if (curLen >= STRONG_ENDING_MIN_LEN && isStrongEnding(ch)) {
+        canSplit = true;
+      }
+      if (canSplit) {
         segments.push(current.trim());
         current = '';
       }
     }
+ 
+    if (current.length >= MAX_SEG_LEN) {
+      var trimmed = current.trim();
+      if (trimmed) {
+        segments.push(trimmed);
+      }
+      current = '';
+    }
   }
-
+ 
   var tail = current.trim();
-  if (tail && tail.length >= 20) {
+  if (tail && tail.length >= 5) {
     segments.push(tail);
   }
-
+ 
   return segments;
 }
-
+ 
 // ================================================================
 // 合成与播放
 // ================================================================
-
+ 
 function synthesizeSegmentWorker(text, index) {
   return new Promise(function (resolve, reject) {
     if (_streamTTS.isStopped) { reject(new Error('stopped')); return; }
-
+ 
     var ac = new AbortController();
     _streamTTS.abortControllers.push(ac);
-
+ 
     var MAX_RETRIES = 2;
     var retryDelay = 1000;
-
+ 
     function attempt(attemptNum) {
       if (_streamTTS.isStopped) { reject(new Error('stopped')); return; }
-
+ 
       var tid = setTimeout(function () { ac.abort(); }, 15000);
-
+ 
       fetch(CONFIG.TTS_WORKER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json;charset=UTF-8' },
@@ -335,18 +361,18 @@ function synthesizeSegmentWorker(text, index) {
         }
       });
     }
-
+ 
     attempt(1);
   });
 }
-
+ 
 function playNextSegment() {
   if (_streamTTS.isStopped) return;
   if (_streamTTS.isPaused) return;
-
+ 
   var idx = _streamTTS.currentPlayIndex;
   var blob = _streamTTS.synthesizedBlobs[idx];
-
+ 
   if (!blob) {
     if (_streamTTS.allReceived && idx >= _streamTTS.totalSegments) {
       updateBubblePlayBtn(_streamTTS.btnEl, 'stopped');
@@ -357,11 +383,11 @@ function playNextSegment() {
     }
     return;
   }
-
+ 
   _streamTTS.isPlaying = true;
   updateBubblePlayBtn(_streamTTS.btnEl, 'playing');
   updateHeaderPlayBtn();
-
+ 
   var url = URL.createObjectURL(blob);
   if (!_streamTTS.audioEl) {
     _streamTTS.audioEl = new Audio();
@@ -383,13 +409,15 @@ function playNextSegment() {
     playNextSegment();
   });
 }
-
+ 
+var _synthesisQueue = null;
+ 
 function startSynthesisQueue() {
-  var MAX_CONCURRENT = 3;
+  var MAX_CONCURRENT = 2;
   var activeCount = 0;
   var nextIndex = 0;
   var waitingForMore = false;
-
+ 
   function processOne() {
     if (_streamTTS.isStopped) return;
     if (_streamTTS.segments.length === 0) {
@@ -403,39 +431,81 @@ function startSynthesisQueue() {
       }
       return;
     }
-
+ 
     var seg = _streamTTS.segments.shift();
     var idx = nextIndex++;
     _streamTTS.synthesizedBlobs.push(null);
     activeCount++;
-
+ 
     synthesizeSegmentWorker(seg, idx).then(function (result) {
       if (_streamTTS.isStopped) return;
       _streamTTS.synthesizedBlobs[result.index] = result.blob;
-
-      if (!_streamTTS.isPlaying && result.index === 0) {
-        _streamTTS.isPlaying = true;
-        hideToast();
-        playNextSegment();
-      } else if (_streamTTS.isPlaying && result.index === _streamTTS.currentPlayIndex) {
+      console.log('[StreamTTS] 第' + result.index + '段就绪');
+ 
+      var curIdx = _streamTTS.currentPlayIndex;
+      var curBlob = _streamTTS.synthesizedBlobs[curIdx];
+ 
+      if (!_streamTTS.isPlaying) {
+        if (curBlob) {
+          _streamTTS.isPlaying = true;
+          hideToast();
+          playNextSegment();
+        } else if (result.index === curIdx) {
+          _streamTTS.isPlaying = true;
+          hideToast();
+          playNextSegment();
+        }
+      } else if (result.index === curIdx) {
         playNextSegment();
       }
     }).catch(function (err) {
       if (err.message === 'stopped') return;
       console.error('[StreamTTS] 合成失败：', err);
       _streamTTS.synthesizedBlobs[idx] = null;
+ 
       if (_streamTTS.isPlaying && idx === _streamTTS.currentPlayIndex) {
-        _streamTTS.currentPlayIndex++;
-        playNextSegment();
+        skipToNextAvailable();
+      } else if (!_streamTTS.isPlaying && idx === _streamTTS.currentPlayIndex) {
+        skipToNextAvailable();
       }
     }).then(function () {
       activeCount--;
       tryFill();
     });
   }
-
+ 
+  function skipToNextAvailable() {
+    var idx = _streamTTS.currentPlayIndex;
+    var total = _streamTTS.totalSegments || 0;
+    var found = false;
+    while (idx < total || !_streamTTS.allReceived) {
+      var blob = _streamTTS.synthesizedBlobs[idx];
+      if (blob) {
+        _streamTTS.currentPlayIndex = idx;
+        _streamTTS.isPlaying = true;
+        hideToast();
+        found = true;
+        playNextSegment();
+        break;
+      }
+      if (blob === null && _streamTTS.synthesizedBlobs.hasOwnProperty(idx)) {
+        idx++;
+        continue;
+      }
+      break;
+    }
+    if (!found && _streamTTS.allReceived) {
+      updateBubblePlayBtn(_streamTTS.btnEl, 'stopped');
+      _currentSpeakBtn = null;
+      hideToast();
+      _streamTTS.isPlaying = false;
+      updateHeaderPlayBtn();
+    }
+  }
+ 
   function tryFill() {
     if (_streamTTS.isStopped) return;
+    waitingForMore = false;
     while (activeCount < MAX_CONCURRENT) {
       if (_streamTTS.segments.length === 0 && !_streamTTS.allReceived) {
         if (!waitingForMore) {
@@ -451,14 +521,21 @@ function startSynthesisQueue() {
       processOne();
     }
   }
-
+ 
+  _synthesisQueue = { tryFill: tryFill };
   tryFill();
 }
-
+ 
+function wakeSynthesisQueue() {
+  if (_synthesisQueue && _synthesisQueue.tryFill) {
+    _synthesisQueue.tryFill();
+  }
+}
+ 
 // ================================================================
 // 导出给外部调用的 TTS 函数
 // ================================================================
-
+ 
 export function streamSpeakWorker(text, btnEl) {
   stopAllSpeak();
   resetStreamTTS();
@@ -467,23 +544,23 @@ export function streamSpeakWorker(text, btnEl) {
     updateBubblePlayBtn(btnEl, 'playing');
     _currentSpeakBtn = btnEl;
   }
-
+ 
   var plainText = stripMarkdown(text);
   var segments = splitTextIntoSegments(plainText);
   if (segments.length === 0) return;
-
+ 
   _streamTTS.totalSegments = segments.length;
   _streamTTS.allReceived = true;
   _streamTTS.segments = segments;
-
+ 
   showToast('正在合成语音...');
   startSynthesisQueue();
 }
-
+ 
 export function autoPlayStreamStart() {
-  if (!autoPlayTTS || !autoPlayTTSReady) return;
+  if (!state.autoPlayTTS || !state.autoPlayTTSReady) return;
   if (!hasWorkerTTS()) return;
-
+ 
   stopAllSpeak();
   resetStreamTTS();
   _autoPlayStream = {
@@ -492,14 +569,14 @@ export function autoPlayStreamStart() {
   };
   _streamTTS.allReceived = false;
   _streamTTS.isPlaying = false;
-
+ 
   showToast('正在合成语音...');
   startSynthesisQueue();
 }
-
+ 
 export function autoPlayStreamFeed(text) {
-  if (!autoPlayTTS || !autoPlayTTSReady || !hasWorkerTTS()) return;
-
+  if (!state.autoPlayTTS || !state.autoPlayTTSReady || !hasWorkerTTS()) return;
+ 
   if (!_autoPlayStream) {
     if (_streamTTS.audioEl) {
       try { _streamTTS.audioEl.pause(); _streamTTS.audioEl.src = ''; } catch (e) {}
@@ -523,7 +600,7 @@ export function autoPlayStreamFeed(text) {
       b.title = '朗读';
     });
     hideToast();
-
+ 
     _autoPlayStream = {
       lastSentCharIndex: 0,
       finished: false,
@@ -533,15 +610,15 @@ export function autoPlayStreamFeed(text) {
     showToast('正在合成语音...');
     startSynthesisQueue();
   }
-
+ 
   if (_streamTTS.isStopped) return;
-
+ 
   var plainText = stripMarkdown(text);
   var newText = plainText.substring(_autoPlayStream.lastSentCharIndex);
   if (!newText.trim()) return;
-
+ 
   var sentences = splitTextIntoSegments(newText);
-
+ 
   for (var i = 0; i < sentences.length; i++) {
     var seg = sentences[i];
     var charIndex = plainText.indexOf(seg, _autoPlayStream.lastSentCharIndex);
@@ -552,36 +629,52 @@ export function autoPlayStreamFeed(text) {
       _streamTTS.totalSegments++;
     }
   }
-
+ 
   if (sentences.length === 0 && newText.length >= 30) {
     _streamTTS.segments.push(newText);
     _autoPlayStream.lastSentCharIndex = plainText.length;
     _streamTTS.totalSegments = _streamTTS.totalSegments || 0;
     _streamTTS.totalSegments++;
   }
+ 
+  wakeSynthesisQueue();
 }
-
+ 
 export function autoPlayStreamEnd(finalText) {
   if (!_autoPlayStream) return;
-
+ 
   var plainText = stripMarkdown(finalText);
   var remainingText = plainText.substring(_autoPlayStream.lastSentCharIndex);
   if (remainingText.trim()) {
     _streamTTS.segments.push(remainingText.trim());
     _streamTTS.totalSegments++;
   }
-
+ 
   _streamTTS.allReceived = true;
   _autoPlayStream.finished = true;
+  wakeSynthesisQueue();
 }
-
+ 
 export function autoPlayStreamStop() {
   if (_autoPlayStream) {
     stopStreamTTS();
     _autoPlayStream = null;
   }
 }
-
+ 
+export function isAutoPlayStreaming() {
+  return !!_autoPlayStream;
+}
+ 
+export function getStreamTTSState() {
+  if (!_streamTTS) return null;
+  return {
+    isPlaying: _streamTTS.isPlaying,
+    isPaused: _streamTTS.isPaused,
+    isStopped: _streamTTS.isStopped,
+  };
+}
+ 
 export function stopAllSpeak() {
   stopStreamTTS();
   if (hasTTSAPI()) {
@@ -596,18 +689,18 @@ export function stopAllSpeak() {
   _currentSpeakBtn = null;
   hideToast();
 }
-
+ 
 var _ttsAudio = null;
 var _ttsVerified = false;
 var _ttsBroken = false;
-
+ 
 export function speakViaWebSpeech(plainText, btnEl) {
   var synth = window.speechSynthesis;
-
+ 
   var trimmed = (plainText || "").trim();
   if (!trimmed) return;
   if (trimmed.length > 2000) trimmed = trimmed.slice(0, 2000);
-
+ 
   var utter;
   try {
     utter = new SpeechSynthesisUtterance(trimmed);
@@ -617,7 +710,7 @@ export function speakViaWebSpeech(plainText, btnEl) {
   utter.volume = 1;
   utter.lang = "zh-CN";
   if (_zhVoice) utter.voice = _zhVoice;
-
+ 
   var started = false;
   var startTimeout = setTimeout(function () {
     if (!started) {
@@ -628,7 +721,7 @@ export function speakViaWebSpeech(plainText, btnEl) {
       showTTSUnavailable();
     }
   }, 1500);
-
+ 
   if (btnEl) {
     btnEl.classList.add("is-speaking");
     _currentSpeakBtn = btnEl;
@@ -652,7 +745,7 @@ export function speakViaWebSpeech(plainText, btnEl) {
       showTTSUnavailable();
     }
   };
-
+ 
   try {
     synth.speak(utter);
     if (synth.paused) synth.resume();
@@ -663,35 +756,35 @@ export function speakViaWebSpeech(plainText, btnEl) {
     showTTSUnavailable();
   }
 }
-
+ 
 export function speakText(plainText, btnEl) {
   if (btnEl && _currentSpeakBtn === btnEl) {
     stopAllSpeak();
     return;
   }
   stopAllSpeak();
-
+ 
   var trimmed = (plainText || "").trim();
   if (!trimmed) return;
-
+ 
   if (hasWorkerTTS()) {
     streamSpeakWorker(trimmed, btnEl);
     return;
   }
-
+ 
   if (!hasTTSAPI()) { showTTSUnavailable(); return; }
   if (_ttsBroken) { showTTSUnavailable(); return; }
   speakViaWebSpeech(trimmed, btnEl);
 }
-
+ 
 // ================================================================
 // 朗读按钮挂载
 // ================================================================
-
+ 
 export function attachSpeakButton(bubble, rawText) {
   if (!bubble) return;
   if (!hasWorkerTTS() && !hasTTSAPI()) return;
-
+ 
   var btn = document.createElement("button");
   btn.type = "button";
   btn.className = "speak-btn";
@@ -699,14 +792,14 @@ export function attachSpeakButton(bubble, rawText) {
   btn.innerHTML = "🔊";
   btn.addEventListener("click", function (e) {
     e.stopPropagation();
-
+ 
     var plain;
     if (typeof rawText === "string" && rawText.length > 0) {
       plain = stripMarkdown(rawText);
     } else {
       plain = bubble.textContent || bubble.innerText || "";
     }
-
+ 
     if (_currentSpeakBtn === btn) {
       if (_streamTTS && _streamTTS.isPlaying) {
         pauseStreamTTS();
@@ -715,7 +808,7 @@ export function attachSpeakButton(bubble, rawText) {
       }
       return;
     }
-
+ 
     stopAllSpeak();
     speakText(plain, btn);
   });

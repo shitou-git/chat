@@ -1,14 +1,15 @@
+﻿
 /**
  * 工具函数模块
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
-
-import { IDENTITY_REPLY } from './config.js';
-
+ 
+import { IDENTITY_REPLY } from './config.js?v=45';
+ 
 // ================================================================
 // HTML 转义
 // ================================================================
-
+ 
 export function escapeHtml(s) {
   if (s == null) return "";
   var str = String(s);
@@ -23,11 +24,11 @@ export function escapeHtml(s) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
-
+ 
 // ================================================================
 // 身份过滤
 // ================================================================
-
+ 
 /**
  * 统一身份回复：屏蔽 AI 自述为 Sapiens/Agnes 的语句
  */
@@ -63,20 +64,20 @@ export function sanitizeIdentity(text) {
   }
   return result;
 }
-
+ 
 // ================================================================
 // LaTeX 处理
 // ================================================================
-
+ 
 export function fixLatex(text) {
   if (!text) return text;
   var needsLatex = text.indexOf("\\") !== -1;
   var needsGreek = /[παβγδεθλμρστφψωΔΣΩ]/.test(text);
   var needsSymbol = /[√×÷≤≥≠→←↔∞∑∫∏∂∇∈∉⊂⊃∪∩°±∓]/.test(text);
   if (!needsLatex && !needsGreek && !needsSymbol) return text;
-
+ 
   var result = text;
-
+ 
   if (needsLatex) {
     result = result
       .replace(/\\sqrt\{([^{}]+)\}\{([^{}]+)\}/g, "\\sqrt[$1]{$2}")
@@ -86,7 +87,7 @@ export function fixLatex(text) {
       .replace(/\\frac(\d)\{([^{}]+)\}/g, "\\frac{$1}{$2}")
       .replace(/\\frac\{([^{}]+)\}(\d)/g, "\\frac{$1}{$2}");
   }
-
+ 
   if (needsSymbol) {
     result = result
       .replace(/√/g, "\\sqrt ")
@@ -116,7 +117,7 @@ export function fixLatex(text) {
       .replace(/±/g, "\\pm ")
       .replace(/∓/g, "\\mp ");
   }
-
+ 
   if (needsGreek) {
     result = result
       .replace(/(?<!\\)π/g, "$\\pi$")
@@ -138,19 +139,19 @@ export function fixLatex(text) {
       .replace(/(?<!\\)Σ/g, "$\\Sigma$")
       .replace(/(?<!\\)Ω/g, "$\\Omega$");
   }
-
+ 
   return result;
 }
-
+ 
 // ================================================================
 // Markdown 渲染
 // ================================================================
-
+ 
 /** 将文本+公式混合内容渲染为 HTML */
 export function renderContent(text) {
   if (!text) return "";
   var fixed = fixLatex(text);
-
+ 
   // 第 1 轮：提取代码块
   var codeBlocks = [];
   fixed = fixed.replace(/```(\w*)\n?([\s\S]*?)```/g, function (m, lang, code) {
@@ -158,13 +159,13 @@ export function renderContent(text) {
     codeBlocks.push({ lang: lang, code: code.replace(/\n$/, "") });
     return "\x00CODE" + idx + "\x00";
   });
-
+ 
   // 第 2 轮：分离公式与文本
   var regex = /\$\$([\s\S]+?)\$\$|\$([^$]+?)\$/g;
   var parts = [];
   var lastEnd = 0;
   var match;
-
+ 
   while ((match = regex.exec(fixed)) !== null) {
     if (match.index > lastEnd) {
       parts.push({ type: "text", content: fixed.substring(lastEnd, match.index) });
@@ -179,7 +180,7 @@ export function renderContent(text) {
   if (lastEnd < fixed.length) {
     parts.push({ type: "text", content: fixed.substring(lastEnd) });
   }
-
+ 
   // 第 3 轮：渲染各部分
   var result = "";
   for (var i = 0; i < parts.length; i++) {
@@ -214,7 +215,7 @@ export function renderContent(text) {
       }
     }
   }
-
+ 
   // 第 4 轮：还原代码块
   result = result.replace(/\x00CODE(\d+)\x00/g, function (m, idx) {
     var block = codeBlocks[parseInt(idx, 10)];
@@ -225,10 +226,10 @@ export function renderContent(text) {
       "</code></pre>"
     );
   });
-
+ 
   return result;
 }
-
+ 
 /** 流式期间的轻量渲染 */
 export function renderContentLight(text) {
   if (!text) return "";
@@ -263,12 +264,12 @@ export function renderContentLight(text) {
   }
   return result;
 }
-
+ 
 /** 渲染纯文本部分：Markdown 处理 */
 export function renderText(text) {
   var tables = [];
   var safeText = text;
-
+ 
   // 表格预处理
   if (/\|/.test(safeText) && /\n\s*\|[-:\s|]+\|\s*\n/.test(safeText)) {
     var tableRegex = /(?:^|\n)((?:\|[^\n]*\|\n){1,}(?:\|[-:\s|]+\|\n)(?:\|[^\n]*\|\n?)+)/gm;
@@ -277,7 +278,7 @@ export function renderText(text) {
         return /\|\s*$/.test(l) || /^\s*\|/.test(l);
       });
       if (lines.length < 3) return fullMatch;
-
+ 
       var sepLine = lines[1] || "";
       var aligns = sepLine.split("|").slice(1, -1).map(function (cell) {
         var c = (cell || "").trim();
@@ -288,7 +289,7 @@ export function renderText(text) {
         if (left) return "left";
         return "";
       });
-
+ 
       var processCell = function (content) {
         if (!content) return "";
         var s = escapeHtml((content || "").trim())
@@ -297,7 +298,7 @@ export function renderText(text) {
           .replace(/`([^`]+)`/g, '<code class="code-inline">$1</code>');
         return s;
       };
-
+ 
       var headerCells = lines[0].split("|").slice(1, -1);
       var theadHtml = "<thead><tr>";
       for (var h = 0; h < headerCells.length; h++) {
@@ -306,7 +307,7 @@ export function renderText(text) {
         theadHtml += "<th" + alignAttr + ">" + processCell(headerCells[h]) + "</th>";
       }
       theadHtml += "</tr></thead>";
-
+ 
       var tbodyHtml = "<tbody>";
       for (var r = 2; r < lines.length; r++) {
         var cells = lines[r].split("|").slice(1, -1);
@@ -319,15 +320,15 @@ export function renderText(text) {
         tbodyHtml += "</tr>";
       }
       tbodyHtml += "</tbody>";
-
+ 
       var tIdx = tables.length;
       tables.push('<table class="md-table">' + theadHtml + tbodyHtml + "</table>");
       return "\n\x02TABLE" + tIdx + "\x02\n";
     });
   }
-
+ 
   var html = escapeHtml(safeText);
-
+ 
   // 行内代码
   var inlineCodes = [];
   html = html.replace(/`([^`]+)`/g, function (m, code) {
@@ -335,45 +336,45 @@ export function renderText(text) {
     inlineCodes.push(code);
     return "\x01INLINE" + idx + "\x01";
   });
-
+ 
   // 标题
   html = html.replace(/^#{1,6}\s+(.+)$/gm, function (m, content) {
     var level = m.match(/^#+/)[0].length;
     return "<h" + level + ">" + content + "</h" + level + ">";
   });
-
+ 
   // 加粗
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-
+ 
   // 列表
   html = html.replace(/^[-*]\s+/gm, "• ");
   html = html.replace(/^(\d+\.)\s+/gm, "$1 ");
-
+ 
   // 换行
   html = html.replace(/\n/g, "<br>");
-
+ 
   // 还原行内代码
   html = html.replace(/\x01INLINE(\d+)\x01/g, function (m, idx) {
     return '<code class="code-inline">' + inlineCodes[parseInt(idx, 10)] + "</code>";
   });
-
+ 
   // 还原表格
   html = html.replace(/\x02TABLE(\d+)\x02/g, function (m, idx) {
     return tables[parseInt(idx, 10)] || "";
   });
-
+ 
   return html;
 }
-
+ 
 /** 渲染用户消息（纯文本） */
 export function renderUserText(text) {
   return escapeHtml(text).replace(/\n/g, "<br>");
 }
-
+ 
 // ================================================================
 // 相关问题处理
 // ================================================================
-
+ 
 /** 根据正文长度计算应该显示几条相关问题 */
 export function calcFollowUpCount(bodyText) {
   var len = (bodyText || "").length;
@@ -381,12 +382,12 @@ export function calcFollowUpCount(bodyText) {
   if (len < 800) return 2;
   return 3;
 }
-
+ 
 /** 从 AI 回答中分离出正文与相关问题列表 */
 export function extractFollowUpQuestions(text) {
   var emptyResult = { body: text || "", questions: [] };
   if (!text) return emptyResult;
-
+ 
   function isQuestionLine(line) {
     if (!line) return null;
     var s = line.trim();
@@ -399,7 +400,7 @@ export function extractFollowUpQuestions(text) {
     if (!/[?？]/.test(q) && !/[\u4e00-\u9fa5]{2,}/.test(q)) return null;
     return q;
   }
-
+ 
   function isSeparatorLine(line) {
     if (!line) return false;
     var s = line.trim();
@@ -418,7 +419,7 @@ export function extractFollowUpQuestions(text) {
     if (/^[>＞]\s*相关问题/.test(s)) return true;
     return false;
   }
-
+ 
   var rawLines = text.split("\n");
   var separatorIdx = -1;
   for (var i = rawLines.length - 1; i >= 0; i--) {
@@ -427,10 +428,10 @@ export function extractFollowUpQuestions(text) {
       break;
     }
   }
-
+ 
   var questions = [];
   var bodyLines;
-
+ 
   if (separatorIdx !== -1) {
     bodyLines = rawLines.slice(0, separatorIdx);
     var targetCount = calcFollowUpCount(bodyLines.join("\n"));
@@ -457,19 +458,19 @@ export function extractFollowUpQuestions(text) {
     }
     bodyLines = (questions.length > 0) ? rawLines.slice(0, rawLines.length - questions.length) : rawLines;
   }
-
+ 
   if (questions.length === 0) return emptyResult;
-
+ 
   while (bodyLines.length && /^\s*$/.test(bodyLines[bodyLines.length - 1])) bodyLines.pop();
   return { body: bodyLines.join("\n"), questions: questions };
 }
-
+ 
 /** 兜底方案：自动生成追问 */
 export function generateFallbackQuestions(text, userQuestion) {
   if (!text) return [];
   var keywords = [];
   var targetCount = calcFollowUpCount(text);
-
+ 
   var STOP_WORDS = {
     "总结": 1, "结论": 1, "核心": 1, "优势": 1, "特点": 1, "技术特点": 1,
     "主要用途": 1, "重要里程碑": 1, "其他": 1, "其他相关": 1,
@@ -477,21 +478,21 @@ export function generateFallbackQuestions(text, userQuestion) {
     "内容": 1, "部分": 1, "问题": 1, "方面": 1, "方式": 1,
     "如何": 1, "什么": 1, "为什么": 1, "哪个": 1, "哪里": 1, "谁": 1,
   };
-
+ 
   // 从标题提取
   var titleRegex = /^\s*(?:#{1,6})\s*([^\n]{2,40})/gm;
   var tm;
   while ((tm = titleRegex.exec(text)) !== null) {
     keywords.push(tm[1].trim());
   }
-
+ 
   // 从加粗词提取
   var boldRegex = /\*\*([^*\n]{2,30})\*\*/g;
   var bm;
   while ((bm = boldRegex.exec(text)) !== null) {
     keywords.push(bm[1].trim());
   }
-
+ 
   // 从用户问题提取
   if (userQuestion) {
     var cleaned = userQuestion
@@ -500,14 +501,14 @@ export function generateFallbackQuestions(text, userQuestion) {
       .trim();
     if (cleaned.length >= 2 && cleaned.length <= 30) keywords.push(cleaned);
   }
-
+ 
   // 大写英文缩写
   var acronymRegex = /\b([A-Z]{2,8})\b/g;
   var am;
   while ((am = acronymRegex.exec(text)) !== null) {
     keywords.push(am[1]);
   }
-
+ 
   // 首段中文片段
   var firstPart = (text.split(/\n\n|\r\n\r\n/)[0] || text).substring(0, 200);
   var nounMatches = firstPart.match(/[\u4e00-\u9fa5]{2,6}/g) || [];
@@ -516,7 +517,7 @@ export function generateFallbackQuestions(text, userQuestion) {
       keywords.push(nounMatches[n]);
     }
   }
-
+ 
   // 去重 + 过滤
   var seen = {};
   var uniqueKeywords = [];
@@ -529,7 +530,7 @@ export function generateFallbackQuestions(text, userQuestion) {
     seen[kw] = true;
     uniqueKeywords.push(kw);
   }
-
+ 
   // 生成模板化追问
   var templates = [
     function (kw) { return "什么是" + kw + "？"; },
@@ -538,13 +539,13 @@ export function generateFallbackQuestions(text, userQuestion) {
     function (kw) { return kw + "的核心是什么？"; },
     function (kw) { return "关于" + kw + "能举个例子吗？"; },
   ];
-
+ 
   var result = [];
   var takeCount = Math.min(uniqueKeywords.length, targetCount);
   for (var i = 0; i < takeCount; i++) {
     result.push(templates[i % templates.length](uniqueKeywords[i]));
   }
-
+ 
   if (result.length === 0) {
     if (targetCount >= 2 && userQuestion && userQuestion.length < 40) {
       var qTopic = userQuestion.replace(/[？?，。,.！!；;]/g, "").trim();
@@ -559,19 +560,19 @@ export function generateFallbackQuestions(text, userQuestion) {
       result.push("能再详细讲讲吗？");
     }
   }
-
+ 
   return result.slice(0, targetCount);
 }
-
+ 
 // ================================================================
 // Markdown 文本处理（供 TTS 使用）
 // ================================================================
-
+ 
 /** 去除 Markdown 格式，提取纯文本 */
 export function stripMarkdown(text) {
   if (!text) return "";
   var t = text;
-
+ 
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, "$2");
   t = t.replace(/`([^`]+)`/g, "$1");
   t = t.replace(/\$\$[\s\S]+?\$\$/g, "公式");
@@ -593,14 +594,14 @@ export function stripMarkdown(text) {
   t = t.replace(/[\u{2600}-\u{26FF}]/gu, "");
   t = t.replace(/[\u{2700}-\u{27BF}]/gu, "");
   t = t.replace(/\n{3,}/g, "\n\n").trim();
-
+ 
   return t;
 }
-
+ 
 // ================================================================
 // KaTeX 缩放
 // ================================================================
-
+ 
 /** 长公式自动缩小字体 */
 export function autoScaleKatex(container) {
   if (!container) return;
@@ -613,7 +614,7 @@ export function autoScaleKatex(container) {
     var parentWidth = block.clientWidth || (block.parentElement && block.parentElement.clientWidth) || 300;
     var inner = block.querySelector(".katex-display") || block.querySelector(".katex");
     if (!inner) { block._autoScaled = true; continue; }
-
+ 
     block.style.fontSize = "";
     var naturalWidth = inner.scrollWidth;
     if (naturalWidth <= parentWidth + 2) {
@@ -626,11 +627,11 @@ export function autoScaleKatex(container) {
     block._autoScaled = true;
   }
 }
-
+ 
 // ================================================================
 // 其他工具
 // ================================================================
-
+ 
 /** 延迟函数 */
 export function delay(ms) {
   return new Promise(function (resolve) { setTimeout(resolve, ms); });

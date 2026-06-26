@@ -1,39 +1,44 @@
+﻿
 /**
  * DOM 渲染模块
  * 包含消息元素创建、侧栏渲染、相关问题按钮等 DOM 操作
  */
-
-import { 
-  renderContent, 
-  renderUserText, 
-  renderFollowUpButtons,
+ 
+import {
+  renderContent,
+  renderUserText,
   autoScaleKatex,
   extractFollowUpQuestions,
   generateFallbackQuestions
-} from './utils.js';
-import { 
-  currentSession, 
-  chatData, 
-  isGenerating,
-  pendingOperation,
-  autoPlayTTS,
-  autoPlayTTSReady
-} from './state.js';
-import { CONFIG } from './config.js';
 
+} from './utils.js?v=45';
+import {
+  state,
+  currentSession,
+  chatData,
+  truncateMessagesFrom
+
+} from './state.js?v=45';
+import { CONFIG } from './config.js?v=45';
+import { attachSpeakButton } from './tts.js?v=45';
+ 
 // 导出到全局，供 chat.js 和 app.js 使用
-export var chatMessages, chatInput;
-
+// 用对象包装避免 ES Module 只读绑定问题
+export var domRefs = {
+  chatMessages: null,
+  chatInput: null,
+};
+ 
 // ================================================================
 // DOM 引用获取
 // ================================================================
-
+ 
 export function getDOMElements() {
-  chatMessages = document.getElementById("chatMessages");
-  chatInput = document.getElementById("chatInput");
+  domRefs.chatMessages = document.getElementById("chatMessages");
+  domRefs.chatInput = document.getElementById("chatInput");
   return {
-    chatMessages,
-    chatInput,
+    chatMessages: domRefs.chatMessages,
+    chatInput: domRefs.chatInput,
     chatSendBtn: document.getElementById("chatSendBtn"),
     chatNewBtn: document.getElementById("chatNewBtn"),
     chatThemeBtn: document.getElementById("chatThemeBtn"),
@@ -47,19 +52,20 @@ export function getDOMElements() {
     chatSidebarOverlay: document.getElementById("chatSidebarOverlay"),
     chatSidebarClose: document.getElementById("chatSidebarClose"),
     chatSidebarNewBtn: document.getElementById("chatSidebarNewBtn"),
+    chatSidebarRefreshBtn: document.getElementById("chatSidebarRefreshBtn"),
     chatSidebarList: document.getElementById("chatSidebarList"),
   };
 }
-
+ 
 // ================================================================
 // 消息渲染
 // ================================================================
-
+ 
 /** 渲染空状态 */
 export function renderEmptyState() {
-  chatMessages.innerHTML = buildEmptyTipHTML();
+  domRefs.chatMessages.innerHTML = buildEmptyTipHTML();
 }
-
+ 
 function buildEmptyTipHTML() {
   return (
     '<div class="chat-empty-tip">' +
@@ -68,7 +74,7 @@ function buildEmptyTipHTML() {
     "</div>"
   );
 }
-
+ 
 /** 渲染当前会话到 DOM */
 export function renderCurrentSession() {
   var s = currentSession();
@@ -76,38 +82,38 @@ export function renderCurrentSession() {
     renderEmptyState();
     return;
   }
-  chatMessages.innerHTML = "";
-
+  domRefs.chatMessages.innerHTML = "";
+ 
   var frag = document.createDocumentFragment();
   for (var mi = 0; mi < s.messages.length; mi++) {
     var m = s.messages[mi];
     if (!m.content || !m.content.trim()) continue;
     frag.appendChild(createMessageElement(m));
   }
-  chatMessages.appendChild(frag);
+  domRefs.chatMessages.appendChild(frag);
   scrollToBottom(true);
 }
-
+ 
 /** 创建消息 DOM 元素 */
 export function createMessageElement(msg) {
   var div = document.createElement("div");
   div.className = "message " + (msg.role === "user" ? "user" : "ai");
   div.dataset.msgId = msg.id;
-
+ 
   var bubble = document.createElement("div");
   bubble.className = "msg-bubble";
-
+ 
   if (msg.role === "user") {
     bubble.innerHTML = renderUserText(msg.content);
   } else {
     var extracted = extractFollowUpQuestions(msg.content);
     var bodyForBubble = extracted.body;
     var questions = extracted.questions;
-
+ 
     if (!questions || questions.length === 0) {
       questions = generateFallbackQuestions(bodyForBubble, null);
     }
-
+ 
     bubble.innerHTML = renderContent(bodyForBubble);
     div.appendChild(bubble);
     attachLongPressToBubble(bubble, div, msg);
@@ -116,34 +122,34 @@ export function createMessageElement(msg) {
     renderFollowUpButtons(bubble, questions);
     return div;
   }
-
+ 
   attachLongPressToBubble(bubble, div, msg);
   div.appendChild(bubble);
   return div;
 }
-
+ 
 // ================================================================
 // 长按/右键菜单
 // ================================================================
-
+ 
 export var currentActionMenu = null;
-
+ 
 export function hideMsgActionMenu() {
   if (currentActionMenu) {
     currentActionMenu.remove();
     currentActionMenu = null;
   }
 }
-
+ 
 var _textSelectModeBubble = null;
-
+ 
 export function enterBubbleTextSelectMode(bubble) {
   if (_textSelectModeBubble && _textSelectModeBubble !== bubble) {
     _textSelectModeBubble.classList.remove('is-text-select-mode');
   }
   _textSelectModeBubble = bubble;
   bubble.classList.add('is-text-select-mode');
-
+ 
   setTimeout(function () {
     function onOutside(e) {
       if (!bubble.parentNode) return;
@@ -157,13 +163,13 @@ export function enterBubbleTextSelectMode(bubble) {
     document.addEventListener('touchstart', onOutside, true);
   }, 50);
 }
-
+ 
 /** 给气泡绑定长按/右键操作菜单 */
 export function attachLongPressToBubble(bubble, msgDiv, msg) {
   var longPressTimer = null;
   var startX = 0;
   var startY = 0;
-
+ 
   function getClientX(e) {
     if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
     if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
@@ -174,11 +180,11 @@ export function attachLongPressToBubble(bubble, msgDiv, msg) {
     if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientY;
     return e.clientY || 0;
   }
-
+ 
   function inTextSelectMode() {
     return bubble.classList.contains('is-text-select-mode');
   }
-
+ 
   function startLongPress(e) {
     if (inTextSelectMode()) return;
     startX = getClientX(e);
@@ -188,14 +194,14 @@ export function attachLongPressToBubble(bubble, msgDiv, msg) {
       showMsgActionMenu(msgDiv, bubble, msg, startX, startY);
     }, 500);
   }
-
+ 
   function cancelLongPress() {
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       longPressTimer = null;
     }
   }
-
+ 
   function handleMove(e) {
     if (!longPressTimer) return;
     var cx = getClientX(e);
@@ -204,7 +210,7 @@ export function attachLongPressToBubble(bubble, msgDiv, msg) {
       cancelLongPress();
     }
   }
-
+ 
   bubble.addEventListener("touchstart", startLongPress, { passive: true });
   bubble.addEventListener("touchend", cancelLongPress);
   bubble.addEventListener("touchmove", handleMove, { passive: true });
@@ -218,19 +224,19 @@ export function attachLongPressToBubble(bubble, msgDiv, msg) {
   bubble.addEventListener("mouseup", cancelLongPress);
   bubble.addEventListener("mouseleave", cancelLongPress);
 }
-
+ 
 export function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
   hideMsgActionMenu();
-
+ 
   var menu = document.createElement("div");
   menu.className = "msg-action-menu";
-
+ 
   var items = [
     { icon: "📋", label: "复制", action: function () { copyMessageText(msg.content); } },
     { icon: "✍️", label: "文本", action: function () { enterBubbleTextSelectMode(bubble); } },
     { icon: "🗑", label: "删除", action: function () { confirmDeleteMessage(msgDiv); } },
   ];
-
+ 
   if (msg.role === "assistant" || msg.role === "ai") {
     items.push({
       icon: "🔄",
@@ -238,7 +244,7 @@ export function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
       action: function () { regenerateMessage(msgDiv, msg); }
     });
   }
-
+ 
   for (var i = 0; i < items.length; i++) {
     if (i > 0) {
       var divider = document.createElement("div");
@@ -257,19 +263,19 @@ export function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
     })(items[i].action, itemEl);
     menu.appendChild(itemEl);
   }
-
+ 
   document.body.appendChild(menu);
-
+ 
   var menuRect = menu.getBoundingClientRect();
   var vw = window.innerWidth;
   var vh = window.innerHeight;
   var margin = 12;
   var fingerGap = 14;
-
+ 
   var posX = (clickX || vw / 2);
   var menuLeft = posX - menuRect.width / 2;
   menuLeft = Math.max(margin, Math.min(menuLeft, vw - menuRect.width - margin));
-
+ 
   var posY = (clickY || vh / 2);
   var menuTop;
   if (posY - fingerGap - menuRect.height >= margin) {
@@ -278,13 +284,13 @@ export function showMsgActionMenu(msgDiv, bubble, msg, clickX, clickY) {
     menuTop = posY + fingerGap;
   }
   menuTop = Math.max(margin, Math.min(menuTop, vh - menuRect.height - margin));
-
+ 
   menu.style.left = Math.round(menuLeft) + "px";
   menu.style.top = Math.round(menuTop) + "px";
-
+ 
   currentActionMenu = menu;
 }
-
+ 
 export function copyMessageText(text) {
   var plain = text || "";
   if (window.clipboardData && window.clipboardData.setData) {
@@ -306,44 +312,44 @@ export function copyMessageText(text) {
     document.body.removeChild(ta);
   } catch (e) {}
 }
-
+ 
 export function confirmDeleteMessage(msgDiv) {
-  pendingOperation = { type: 'msg', msgDiv: msgDiv };
+  state.pendingOperation = { type: 'msg', msgDiv: msgDiv };
   document.getElementById("chatConfirmTitle").textContent = "确认删除这条消息？";
   document.getElementById("chatConfirmWarn").textContent = "删除后无法恢复";
   showConfirm();
 }
-
+ 
 export function confirmDeleteSession(id) {
-  pendingOperation = { type: 'session', id: id };
+  state.pendingOperation = { type: 'session', id: id };
   document.getElementById("chatConfirmTitle").textContent = "确认删除这个话题？";
   document.getElementById("chatConfirmWarn").textContent = "该话题的所有聊天记录将被删除";
   showConfirm();
 }
-
+ 
 export function confirmClearAll() {
-  pendingOperation = { type: 'clearAll' };
+  state.pendingOperation = { type: 'clearAll' };
   document.getElementById("chatConfirmTitle").textContent = "确认清空聊天记录？";
   document.getElementById("chatConfirmWarn").textContent = "此操作不可恢复";
   showConfirm();
 }
-
+ 
 export function showConfirm() {
   document.getElementById("chatConfirmOverlay").classList.add("show");
   document.getElementById("chatConfirmOverlay").setAttribute("aria-hidden", "false");
   setTimeout(function () { document.getElementById("chatConfirmCancel").focus(); }, 50);
 }
-
+ 
 export function hideConfirm() {
   document.getElementById("chatConfirmOverlay").classList.remove("show");
   document.getElementById("chatConfirmOverlay").setAttribute("aria-hidden", "true");
-  pendingOperation = null;
+  state.pendingOperation = null;
 }
-
+ 
 /** 重新回答 */
 export function regenerateMessage(msgDiv, msg) {
-  if (isGenerating) return;
-
+  if (state.isGenerating) return;
+ 
   var s = currentSession();
   if (!s) return;
   var msgs = s.messages;
@@ -353,19 +359,19 @@ export function regenerateMessage(msgDiv, msg) {
   }
   if (aiIdx < 0) return;
   if (msgs[aiIdx].role !== "assistant") return;
-
+ 
   var userIdx = -1;
   for (var j = aiIdx - 1; j >= 0; j--) {
     if (msgs[j].role === "user") { userIdx = j; break; }
   }
   if (userIdx < 0) return;
-
+ 
   var userQuestion = msgs[userIdx].content;
   var userMsgId = msgs[userIdx].id;
-
-  s.messages = msgs.slice(0, userIdx);
-
-  var allMsgDivs = chatMessages.querySelectorAll(".message");
+ 
+  truncateMessagesFrom(userMsgId);
+ 
+  var allMsgDivs = domRefs.chatMessages.querySelectorAll(".message");
   var started = false;
   for (var k = 0; k < allMsgDivs.length; k++) {
     if (!started && parseInt(allMsgDivs[k].dataset.msgId, 10) === userMsgId) {
@@ -375,25 +381,24 @@ export function regenerateMessage(msgDiv, msg) {
       allMsgDivs[k].parentNode.removeChild(allMsgDivs[k]);
     }
   }
-
+ 
   if (!started) {
-    var allMsgDivs2 = chatMessages.querySelectorAll(".message");
+    var allMsgDivs2 = domRefs.chatMessages.querySelectorAll(".message");
     var started2 = false;
     for (var k2 = 0; k2 < allMsgDivs2.length; k2++) {
       if (allMsgDivs2[k2] === msgDiv) started2 = true;
       if (started2) allMsgDivs2[k2].parentNode.removeChild(allMsgDivs2[k2]);
     }
   }
-
-  chatInput.value = userQuestion;
-  // 触发重新发送
-  window._regenerateQuestion = userQuestion;
+ 
+  domRefs.chatInput.value = userQuestion;
+  document.dispatchEvent(new CustomEvent('chat:regenerate', { detail: { question: userQuestion } }));
 }
-
+ 
 // ================================================================
 // 侧栏渲染
 // ================================================================
-
+ 
 export function openSidebar() {
   renderSidebarList();
   document.getElementById("chatSidebar").classList.add("open");
@@ -405,61 +410,61 @@ export function openSidebar() {
     if (closeBtn) closeBtn.focus();
   }, 200);
 }
-
+ 
 export function closeSidebar() {
   document.getElementById("chatSidebar").classList.remove("open");
   document.getElementById("chatSidebarOverlay").classList.remove("show");
   document.getElementById("chatSidebar").setAttribute("aria-hidden", "true");
   document.getElementById("chatSidebarOverlay").setAttribute("aria-hidden", "true");
 }
-
+ 
 export function renderSidebarList() {
   var chatSidebarList = document.getElementById("chatSidebarList");
   if (!chatSidebarList) return;
   chatSidebarList.innerHTML = "";
-
-  var sessions = window.sessions || [];
+ 
+  var sessions = state.sessions || [];
   if (sessions.length === 0) {
     chatSidebarList.innerHTML = '<div class="chat-sidebar-empty">暂无聊天记录</div>';
     return;
   }
-
-  var currentSessionId = window.currentSessionId;
+ 
+  var currentSessionId = state.currentSessionId;
   sessions.forEach(function (s) {
     var item = document.createElement("div");
     item.className = "chat-sidebar-item" + (s.id === currentSessionId ? " active" : "");
-
+ 
     var icon = document.createElement("span");
     icon.className = "chat-sidebar-item-icon";
     icon.textContent = s.messages.length > 0 ? "💬" : "📝";
-
+ 
     var info = document.createElement("div");
     info.className = "chat-sidebar-item-info";
-
+ 
     var title = document.createElement("div");
     title.className = "chat-sidebar-item-title";
     title.textContent = s.title || "新话题";
-
+ 
     var preview = document.createElement("div");
     preview.className = "chat-sidebar-item-preview";
     var lastMsg = s.messages[s.messages.length - 1];
     preview.textContent = lastMsg
       ? (lastMsg.role === "user" ? "我: " : "AI: ") + lastMsg.content.substring(0, 30)
       : "暂无消息";
-
+ 
     info.appendChild(title);
     info.appendChild(preview);
-
+ 
     item.appendChild(icon);
     item.appendChild(info);
-
+ 
     item.addEventListener("click", function (e) {
       if (e.target.closest(".chat-sidebar-item-delete")) return;
       window.switchSession(s.id);
       closeSidebar();
       renderCurrentSession();
     });
-
+ 
     var delBtn = document.createElement("button");
     delBtn.type = "button";
     delBtn.className = "chat-sidebar-item-delete";
@@ -471,39 +476,66 @@ export function renderSidebarList() {
       confirmDeleteSession(s.id);
     });
     item.appendChild(delBtn);
-
+ 
     chatSidebarList.appendChild(item);
   });
 }
-
+ 
 // ================================================================
 // 滚动控制
 // ================================================================
-
+ 
 export function scrollToBottom(force) {
-  if (!chatMessages) return;
-  if (!force && chatMessages.scrollHeight <= chatMessages.clientHeight + 2) return;
+  if (!domRefs.chatMessages) return;
+  if (!force && domRefs.chatMessages.scrollHeight <= domRefs.chatMessages.clientHeight + 2) return;
   if (window.scrollRafId) {
     if (!force) return;
     cancelAnimationFrame(window.scrollRafId);
   }
   window.scrollRafId = requestAnimationFrame(function () {
-    if (!chatMessages) return;
+    if (!domRefs.chatMessages) return;
     var distanceFromBottom =
-      chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight;
+      domRefs.chatMessages.scrollHeight - domRefs.chatMessages.scrollTop - domRefs.chatMessages.clientHeight;
     if (!force && distanceFromBottom < 4) {
       window.scrollRafId = null;
       return;
     }
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    domRefs.chatMessages.scrollTop = domRefs.chatMessages.scrollHeight;
     window.scrollRafId = null;
   });
 }
-
+ 
 // ================================================================
-// 占位 - 朗读按钮将在 TTS 模块中 attach
+// 追问按钮
 // ================================================================
-
-export function attachSpeakButton(bubble, rawText) {
-  // 由 tts.js 导出并在 app.js 中调用
+ 
+export function renderFollowUpButtons(containerEl, questions) {
+  if (!containerEl || !questions || questions.length === 0) return;
+ 
+  var container = document.createElement("div");
+  container.className = "followup-container";
+ 
+  var title = document.createElement("div");
+  title.className = "followup-title";
+  title.textContent = "你可能还想问：";
+  container.appendChild(title);
+ 
+  for (var i = 0; i < questions.length; i++) {
+    (function (questionText) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "followup-item";
+      btn.textContent = questionText;
+      btn.addEventListener("click", function () {
+        if (state.isGenerating) return;
+        if (!domRefs.chatInput) return;
+        domRefs.chatInput.value = questionText;
+        domRefs.chatInput.style.height = "auto";
+        if (window.sendMessage) window.sendMessage();
+      });
+      container.appendChild(btn);
+    })(questions[i]);
+  }
+ 
+  containerEl.appendChild(container);
 }

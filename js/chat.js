@@ -1,39 +1,37 @@
+﻿
 /**
  * 聊天模块
  * 包含消息发送、流式渲染、API 调用等核心逻辑
  */
-
-import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js';
-import { 
-  isGenerating, 
-  setIsGenerating,
-  abortController, 
-  setAbortController,
+ 
+import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=45';
+import {
+  state,
   addMessageData,
   chatData,
   currentSession,
   saveChatHistory
-} from './state.js';
-import { 
-  renderContent, 
-  renderContentLight, 
-  sanitizeIdentity, 
-  stripMarkdown, 
+} from './state.js?v=45';
+import {
+  renderContent,
+  renderContentLight,
+  sanitizeIdentity,
+  stripMarkdown,
   delay,
   autoScaleKatex,
   extractFollowUpQuestions,
   generateFallbackQuestions,
-  renderFollowUpButtons,
   escapeHtml
-} from './utils.js';
-import { 
+} from './utils.js?v=45';
+import {
   renderCurrentSession,
   renderEmptyState,
   scrollToBottom,
   attachLongPressToBubble,
-  attachSpeakButton as attachSpeakButtonToBubble,
-  createMessageElement
-} from './render.js';
+  createMessageElement,
+  renderFollowUpButtons,
+  domRefs as renderRefs
+} from './render.js?v=45';
 import {
   initStreamTTS,
   resetStreamTTS,
@@ -42,28 +40,20 @@ import {
   autoPlayStreamFeed,
   autoPlayStreamEnd,
   autoPlayStreamStop,
+  isAutoPlayStreaming,
   speakText,
   hasWorkerTTS,
   updateHeaderPlayBtn,
-  resetHeaderPlayBtnToSwitch
-} from './tts.js';
-
-// 导入 chatMessages, chatInput
-import { chatMessages, chatInput } from './render.js';
-
-// ================================================================
-// 状态 setters
-// ================================================================
-
-function setIsGenerating(val) { isGenerating = val; }
-function setAbortController(val) { abortController = val; }
-
+  attachSpeakButton as attachSpeakButtonToBubble
+} from './tts.js?v=45';
+import { authToken, isLoggedIn } from './auth.js?v=45';
+ 
 // ================================================================
 // 发送/停止
 // ================================================================
-
+ 
 export function toggleSendButton(generating) {
-  isGenerating = generating;
+  state.isGenerating = generating;
   var chatSendBtn = document.getElementById("chatSendBtn");
   if (!chatSendBtn) return;
   if (generating) {
@@ -78,46 +68,55 @@ export function toggleSendButton(generating) {
     chatSendBtn.classList.remove("is-stop");
   }
 }
-
+ 
 export function stopGeneration() {
-  if (abortController) abortController.abort();
+  if (state.abortController) state.abortController.abort();
 }
-
+ 
 export async function sendMessage() {
   // 检查是否需要重新发送（重新回答触发）
   if (window._regenerateQuestion) {
     var q = window._regenerateQuestion;
     window._regenerateQuestion = null;
-    chatInput.value = q;
+    renderRefs.chatInput.value = q;
   }
-
+ 
   // 如果正在生成，点击按钮 = 停止
-  if (isGenerating) {
+  if (state.isGenerating) {
     stopGeneration();
     return;
   }
-
-  var text = chatInput.value.trim();
+ 
+  var text = renderRefs.chatInput.value.trim();
   if (!text) return;
-
-  chatInput.value = "";
-  chatInput.style.height = "auto";
+ 
+  // 未登录用户消息限制
+  if (!isLoggedIn()) {
+    var guestCount = getGuestMessageCount();
+    if (guestCount >= CONFIG.GUEST_MAX_MESSAGES) {
+      showGuestLimitModal();
+      return;
+    }
+  }
+ 
+  renderRefs.chatInput.value = "";
+  renderRefs.chatInput.style.height = "auto";
   toggleSendButton(true);
-
+ 
   // 停止 TTS
   stopAllSpeak();
-  resetHeaderPlayBtnToSwitch();
-
+  updateHeaderPlayBtn();
+ 
   // 移除空状态
-  var emptyTip = chatMessages.querySelector(".chat-empty-tip");
+  var emptyTip = renderRefs.chatMessages.querySelector(".chat-empty-tip");
   if (emptyTip) emptyTip.remove();
-
+ 
   // 添加用户消息
   var userMsg = addMessageData("user", text);
   var userMsgDiv = createMessageElement(userMsg);
-  chatMessages.appendChild(userMsgDiv);
+  renderRefs.chatMessages.appendChild(userMsgDiv);
   scrollToBottom(true);
-
+ 
   // 身份类问题检测
   var trimmed = text.trim().toLowerCase();
   var isIdentityQuestion = false;
@@ -127,7 +126,7 @@ export async function sendMessage() {
   if (isIdentityQuestion && !/(你您|who|your name|who made|who created|who developed)/i.test(text)) {
     isIdentityQuestion = false;
   }
-
+ 
   // 身份回复
   if (isIdentityQuestion) {
     var aiReply = addMessageData("assistant", IDENTITY_REPLY);
@@ -136,15 +135,21 @@ export async function sendMessage() {
     aiMsgDiv.dataset.msgId = aiReply.id;
     aiMsgDiv.innerHTML = '<div class="msg-bubble">' + renderContent(IDENTITY_REPLY) + "</div>";
     var bubbleForId = aiMsgDiv.querySelector(".msg-bubble");
-    chatMessages.appendChild(aiMsgDiv);
+    renderRefs.chatMessages.appendChild(aiMsgDiv);
     attachSpeakButtonToBubble(bubbleForId, IDENTITY_REPLY);
     attachLongPressToBubble(bubbleForId, aiMsgDiv, aiReply);
     scrollToBottom(true);
     saveChatHistory();
     toggleSendButton(false);
+ 
+    // 未登录用户消息计数
+    if (!isLoggedIn()) {
+      incrementGuestMessageCount();
+    }
+ 
     return;
   }
-
+ 
   // 创建 AI 占位消息
   var aiMsgDiv = document.createElement("div");
   aiMsgDiv.className = "message ai";
@@ -155,20 +160,20 @@ export async function sendMessage() {
     '<div class="typing-dot"></div>' +
     '<div class="typing-dot"></div>' +
     "</div></div>";
-  chatMessages.appendChild(aiMsgDiv);
+  renderRefs.chatMessages.appendChild(aiMsgDiv);
   var bubble = aiMsgDiv.querySelector(".msg-bubble");
   scrollToBottom(true);
   setTimeout(function () { scrollToBottom(true); }, 50);
-
+ 
   // 构建历史消息
   var historyMessages = [{ role: "system", content: SYSTEM_PROMPT }];
   var msgs = chatData();
   msgs.forEach(function (m) {
     historyMessages.push({ role: m.role, content: m.content });
   });
-
-  abortController = new AbortController();
-
+ 
+  state.abortController = new AbortController();
+ 
   // 流式渲染状态
   var fullContent = "";
   var pendingText = "";
@@ -183,32 +188,32 @@ export async function sendMessage() {
   var streamTextNode = null;
   var streamPlaintextLen = 0;
   var lastScrollTs = 0;
-
+ 
   function getAppendThrottle(len) {
     if (len < 800) return 50;
     if (len < 2500) return 90;
     if (len < 6000) return 150;
     return 220;
   }
-
+ 
   function estimateLineCount(text) {
     if (!text) return 0;
     var m = text.match(/\n/g);
     return (m ? m.length : 0) + 1;
   }
-
+ 
   function flushStreamAppend(force) {
     var nowTs = Date.now();
     if (!force && lastAppendTs > 0 && nowTs - lastAppendTs < getAppendThrottle(fullContent.length)) return;
     if (!pendingText && !force) return;
-
+ 
     if (!hasClearedPlaceholder) {
       bubble.innerHTML = "";
       hasClearedPlaceholder = true;
     }
-
+ 
     var len = fullContent.length;
-
+ 
     if (streamMode === "light" && len > STREAM_PLAINTEXT_THRESHOLD) {
       var span = document.createElement("span");
       span.className = "stream-plaintext";
@@ -232,15 +237,15 @@ export async function sendMessage() {
         bubble.innerHTML = escapeHtml(fullContent).replace(/\n/g, "<br>");
       }
     }
-
+ 
     pendingText = "";
     lastAppendTs = nowTs;
-
+ 
     // 流式 TTS
-    if (window.autoPlayTTS && window.autoPlayTTSReady && hasWorkerTTS() && window._streamTTS && !window._streamTTS.isStopped) {
+    if (state.autoPlayTTS && state.autoPlayTTSReady && hasWorkerTTS()) {
       autoPlayStreamFeed(fullContent);
     }
-
+ 
     if (!force) {
       if (streamMode === "plaintext") {
         if (nowTs - lastScrollTs >= 120) {
@@ -252,18 +257,18 @@ export async function sendMessage() {
       }
     }
   }
-
+ 
   function finalRender(textForBubble, msgObjToAttach) {
     flushStreamAppend(true);
-
+ 
     var extracted = extractFollowUpQuestions(textForBubble);
     var bodyForBubble = extracted.body;
     var questions = extracted.questions;
-
+ 
     if (!questions || questions.length === 0) {
       questions = generateFallbackQuestions(bodyForBubble, lastUserQuestion);
     }
-
+ 
     var rendered = "";
     try {
       rendered = renderContent(bodyForBubble);
@@ -276,23 +281,23 @@ export async function sendMessage() {
     } else {
       bubble.innerHTML = rendered;
     }
-
+ 
     attachSpeakButtonToBubble(bubble, bodyForBubble);
     attachLongPressToBubble(bubble, aiMsgDiv, msgObjToAttach || { role: "assistant", content: bodyForBubble });
     autoScaleKatex(bubble);
-
+ 
     renderFollowUpButtons(bubble, questions);
   }
-
+ 
   try {
     var response = null;
     var retryCount = 0;
-
+ 
     while (retryCount <= CONFIG.MAX_RETRIES) {
       try {
         response = await doFetch(historyMessages);
         if (response.ok) break;
-
+ 
         var errorText = await response.text();
         if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
           retryCount++;
@@ -310,16 +315,16 @@ export async function sendMessage() {
         throw err;
       }
     }
-
+ 
     // SSE 流式读取
     var reader = response.body.getReader();
     var decoder = new TextDecoder("utf-8", { fatal: false });
     var lineBuffer = "";
-
+ 
     while (true) {
       var result = await reader.read();
       if (result.done) break;
-
+ 
       lineBuffer += decoder.decode(result.value, { stream: true });
       var lfIdx;
       while ((lfIdx = lineBuffer.indexOf("\n")) !== -1) {
@@ -329,11 +334,11 @@ export async function sendMessage() {
         if (rawLine === "") continue;
         if (rawLine.charAt(0) === ":") continue;
         if (!rawLine.startsWith("data:")) continue;
-
+ 
         var payload = rawLine.substring(5);
         if (payload.charAt(0) === " ") payload = payload.substring(1);
         if (payload === "[DONE]") continue;
-
+ 
         try {
           var data = JSON.parse(payload);
           var delta =
@@ -342,7 +347,7 @@ export async function sendMessage() {
             data.choices[0].delta &&
             data.choices[0].delta.content;
           if (!delta) continue;
-
+ 
           if (fullContent.length === 0) firstTokenTs = Date.now();
           fullContent += delta;
           pendingText += delta;
@@ -350,12 +355,12 @@ export async function sendMessage() {
         } catch (e) { /* 忽略 */ }
       }
     }
-
+ 
     try {
       var decoderTail = decoder.decode();
       if (decoderTail) lineBuffer += decoderTail;
     } catch (e) {}
-
+ 
     if (lineBuffer && lineBuffer.charAt(0) !== ":") {
       if (lineBuffer.charAt(lineBuffer.length - 1) === "\r") lineBuffer = lineBuffer.slice(0, -1);
       if (lineBuffer.startsWith("data:")) {
@@ -377,36 +382,41 @@ export async function sendMessage() {
         }
       }
     }
-
+ 
     flushStreamAppend(true);
-
+ 
     if (!fullContent.trim()) throw new Error("未收到有效响应");
-
+ 
     fullContent = sanitizeIdentity(fullContent);
-
+ 
     var aiMsg = addMessageData("assistant", fullContent);
     aiMsgDiv.dataset.msgId = aiMsg.id;
     finalRender(fullContent, aiMsg);
-
+ 
     // 自动播报
-    if (window.autoPlayTTS && window.autoPlayTTSReady) {
-      if (hasWorkerTTS() && window._autoPlayStream) {
+    if (state.autoPlayTTS && state.autoPlayTTSReady) {
+      if (hasWorkerTTS() && isAutoPlayStreaming()) {
         autoPlayStreamEnd(fullContent);
       } else if (!hasWorkerTTS()) {
         var plainText = stripMarkdown(fullContent);
         if (plainText) speakText(plainText, null);
       }
     }
-
+ 
     var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
     console.log(
       "[灵知-流式] 全文 " + fullContent.length + " 字符" +
       " | 首 token: " + (ttfbMs ? ttfbMs + "ms" : "-") +
       " | 总耗时: " + (Date.now() - t0) + "ms"
     );
-
+ 
     saveChatHistory();
-
+ 
+    // 未登录用户消息计数
+    if (!isLoggedIn()) {
+      incrementGuestMessageCount();
+    }
+ 
   } catch (err) {
     if (err.name === "AbortError") {
       if (fullContent.trim()) {
@@ -414,8 +424,8 @@ export async function sendMessage() {
         var partialMsg = addMessageData("assistant", fullContent);
         aiMsgDiv.dataset.msgId = partialMsg.id;
         finalRender(fullContent, partialMsg);
-        if (window.autoPlayTTS && window.autoPlayTTSReady) {
-          if (hasWorkerTTS() && window._autoPlayStream) {
+        if (state.autoPlayTTS && state.autoPlayTTSReady) {
+          if (hasWorkerTTS() && isAutoPlayStreaming()) {
             autoPlayStreamStop();
           } else if (!hasWorkerTTS()) {
             var partialText = stripMarkdown(fullContent);
@@ -435,21 +445,24 @@ export async function sendMessage() {
     }
   } finally {
     toggleSendButton(false);
-    abortController = null;
+    state.abortController = null;
   }
 }
-
+ 
 // ================================================================
 // API 请求
 // ================================================================
-
+ 
 function doFetch(historyMessages) {
+  var headers = { "Content-Type": "application/json" };
+  var token = authToken();
+  if (token) {
+    headers["Authorization"] = "Bearer " + token;
+  }
   return fetch(CONFIG.API_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    signal: abortController.signal,
+    headers: headers,
+    signal: state.abortController.signal,
     body: JSON.stringify({
       model: CONFIG.MODEL,
       messages: historyMessages,
@@ -458,4 +471,57 @@ function doFetch(historyMessages) {
       stream: true,
     }),
   });
+}
+ 
+// ================================================================
+// 访客消息限制
+// ================================================================
+ 
+function getGuestMessageCount() {
+  try {
+    var count = parseInt(localStorage.getItem(CONFIG.GUEST_MSG_KEY) || '0', 10);
+    return isNaN(count) ? 0 : count;
+  } catch (e) {
+    return 0;
+  }
+}
+ 
+function incrementGuestMessageCount() {
+  try {
+    var count = getGuestMessageCount();
+    count++;
+    localStorage.setItem(CONFIG.GUEST_MSG_KEY, String(count));
+    return count;
+  } catch (e) {
+    return 0;
+  }
+}
+ 
+function showGuestLimitModal() {
+  var overlay = document.getElementById('authOverlay');
+  var title = document.getElementById('authTitle');
+  var nicknameField = document.getElementById('authNicknameField');
+  var switchText = document.getElementById('authSwitchText');
+  var switchBtn = document.getElementById('authSwitchBtn');
+  var submitBtn = document.getElementById('authSubmitBtn');
+  var errorEl = document.getElementById('authError');
+ 
+  if (!overlay) return;
+ 
+  title.textContent = '登录';
+  if (nicknameField) nicknameField.style.display = 'none';
+  if (switchText) switchText.textContent = '还没有账号？';
+  if (switchBtn) switchBtn.textContent = '去注册';
+  if (submitBtn) submitBtn.textContent = '登录';
+  if (errorEl) errorEl.textContent = '您已达到免费消息上限（' + CONFIG.GUEST_MAX_MESSAGES + '条），请登录后继续使用';
+ 
+  document.getElementById('authEmail').value = '';
+  document.getElementById('authPassword').value = '';
+  var nickInput = document.getElementById('authNickname');
+  if (nickInput) nickInput.value = '';
+ 
+  overlay.classList.add('show');
+  setTimeout(function () {
+    document.getElementById('authEmail').focus();
+  }, 100);
 }

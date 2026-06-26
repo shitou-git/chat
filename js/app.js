@@ -2,60 +2,66 @@
  * 应用入口模块
  * 包含初始化、事件绑定、主题切换等
  */
-
-import { CONFIG } from './config.js';
-import { 
-  loadSessions, 
+ 
+import { CONFIG } from './config.js?v=45';
+import {
+  state,
+  loadSessions,
   createSession,
   saveSessions,
-  sessions,
-  currentSessionId,
-  autoPlayTTS,
-  autoPlayTTSReady,
-  pendingOperation,
-  abortController
-} from './state.js';
-import { 
+  deleteSession,
+  removeMessageData,
+  saveChatHistory,
+  chatData,
+  currentSession,
+  clearAllLocalSessions,
+  loadAllFromServer,
+  clearCurrentSessionMessages,
+  refreshFromServer
+} from './state.js?v=45';
+import {
   getDOMElements,
-  chatMessages,
-  chatInput,
+  domRefs as renderRefs,
   renderCurrentSession,
   renderEmptyState,
   hideMsgActionMenu,
-  showMsgActionMenu,
   currentActionMenu,
   hideConfirm,
-  showConfirm,
   openSidebar,
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js';
-import { 
+} from './render.js?v=45';
+import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js';
+} from './chat.js?v=45';
 import {
   initVoices,
   initStreamTTS,
   updateHeaderPlayBtn,
-  stopAllSpeak
-} from './tts.js';
-import { 
-  deleteSession,
-  removeMessageData,
-  saveChatHistory,
-  chatData
-} from './state.js';
-
+  stopAllSpeak,
+  pauseStreamTTS,
+  resumeStreamTTS,
+  getStreamTTSState
+} from './tts.js?v=45';
+import {
+  register,
+  login,
+  logout,
+  fetchMe,
+  isLoggedIn,
+  currentUser
+} from './auth.js?v=45';
+ 
 // ================================================================
 // 事件绑定
 // ================================================================
-
+ 
 export function setupChat() {
   var dom = getDOMElements();
-
+ 
   // 输入框
   dom.chatInput.addEventListener("input", updateInputHeight);
   dom.chatInput.addEventListener("keydown", function (e) {
@@ -64,20 +70,28 @@ export function setupChat() {
       sendMessage();
     }
   });
-
+ 
   // 发送/停止按钮
   dom.chatSendBtn.addEventListener("click", sendMessage);
-
+ 
   // 新话题
   dom.chatNewBtn.addEventListener("click", startNewSession);
   dom.chatSidebarNewBtn.addEventListener("click", startNewSession);
-
+  if (dom.chatSidebarRefreshBtn) {
+    dom.chatSidebarRefreshBtn.addEventListener("click", function() {
+      refreshFromServer().then(function() {
+        renderSidebarList();
+        renderCurrentSession();
+      });
+    });
+  }
+ 
   // 主题切换
   if (dom.chatThemeBtn) dom.chatThemeBtn.addEventListener("click", toggleTheme);
-
+ 
   // 自动播报
   if (dom.chatAutoPlayBtn) dom.chatAutoPlayBtn.addEventListener("click", toggleAutoPlay);
-
+ 
   // 侧栏
   var chatMenuBtn = document.getElementById("chatMenuBtn");
   if (chatMenuBtn) {
@@ -91,14 +105,14 @@ export function setupChat() {
   }
   dom.chatSidebarClose.addEventListener("click", closeSidebar);
   dom.chatSidebarOverlay.addEventListener("click", closeSidebar);
-
+ 
   // 确认弹窗
   dom.chatConfirmCancel.addEventListener("click", hideConfirm);
   dom.chatConfirmOk.addEventListener("click", onConfirmOk);
   dom.chatConfirmOverlay.addEventListener("click", function (e) {
     if (e.target === dom.chatConfirmOverlay) hideConfirm();
   });
-
+ 
   // Esc 关闭弹窗
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") {
@@ -112,7 +126,7 @@ export function setupChat() {
     }
     trapFocus(e);
   });
-
+ 
   // 点击外部关闭菜单
   document.addEventListener("click", function (e) {
     if (currentActionMenu && !currentActionMenu.contains(e.target)) {
@@ -124,63 +138,131 @@ export function setupChat() {
       hideMsgActionMenu();
     }
   }, { passive: true });
-
+ 
   // 滚动/改变尺寸关闭菜单
   window.addEventListener("scroll", hideMsgActionMenu, true);
   window.addEventListener("resize", hideMsgActionMenu);
-
+ 
   // 页面卸载
   window.addEventListener("beforeunload", function () {
-    if (abortController) abortController.abort();
+    if (state.abortController) state.abortController.abort();
   });
-
+ 
+  // 重新回答事件
+  document.addEventListener('chat:regenerate', function (e) {
+    if (e.detail && e.detail.question) {
+      renderRefs.chatInput.value = e.detail.question;
+    }
+    sendMessage();
+  });
+ 
+  // 认证相关
+  setupAuth();
+ 
   // 初始化会话
   loadSessions();
   initVoices();
   initStreamTTS();
-
-  if (sessions.length === 0) {
+ 
+  if (state.sessions.length === 0) {
     createSession();
   } else {
-    window.currentSessionId = sessions[0].id;
+    state.currentSessionId = state.sessions[0].id;
   }
   renderCurrentSession();
   dom.chatInput.focus();
-
+ 
   // 初始化主题
   initTheme();
-
+ 
   // 初始化自动播报
   initAutoPlay();
+ 
+  // 多标签页数据同步（第五条）
+  setupMultiTabSync();
 }
-
+ 
+// ================================================================
+// 多标签页数据同步（storage事件 + visibilitychange事件）
+// ================================================================
+ 
+var _syncThrottleTimer = null;
+var _lastServerRefresh = 0;
+var SERVER_REFRESH_INTERVAL = 30000;
+ 
+function setupMultiTabSync() {
+  // 1) 监听 storage 事件：其他标签页修改 localStorage 时触发
+  //    只同步本地状态变更（如删除消息），不从服务端拉取
+  window.addEventListener('storage', function (e) {
+    if (!e.key) return;
+    console.log('[灵知] storage事件 - key:', e.key);
+ 
+    
+    if (e.key === CONFIG.STORAGE_KEY || e.key === CONFIG.STORAGE_KEY + '_deleted') {
+     
+      if (_syncThrottleTimer) return;
+      _syncThrottleTimer = setTimeout(function () {
+        _syncThrottleTimer = null;
+      
+        console.log('[灵知] 检测到其他标签页数据变更，同步本地状态');
+        loadSessions();
+        renderSidebarList();
+        renderCurrentSession();
+   
+      }, 800);
+    }
+  });
+ 
+  // 2) 监听 visibilitychange 事件：页面从后台切换回前台时刷新服务端数据
+  //    节流：至少间隔30秒才刷新一次，避免频繁抖动
+  document.addEventListener('visibilitychange', function () {
+  
+    if (document.hidden) return;
+    if (!isLoggedIn()) return;
+ 
+    var now = Date.now();
+    if (now - _lastServerRefresh < SERVER_REFRESH_INTERVAL) {
+      console.log('[灵知] 页面重新可见，但距离上次刷新不足30秒，跳过');
+      return;
+    }
+    console.log('[灵知] 页面重新可见，从服务端刷新数据');
+    _lastServerRefresh = now;
+    setTimeout(function () {
+      refreshFromServer().then(function () {
+        renderSidebarList();
+        renderCurrentSession();
+      });
+    }, 500);
+  });
+}
+ 
 // ================================================================
 // 输入框高度自适应
 // ================================================================
-
+ 
 var _inputResizeRaf = null;
-
+ 
 function updateInputHeight() {
   if (_inputResizeRaf) return;
   _inputResizeRaf = requestAnimationFrame(function () {
     _inputResizeRaf = null;
-    var h = chatInput.scrollHeight;
+    var h = renderRefs.chatInput.scrollHeight;
     if (h > CONFIG.MAX_TEXTAREA_HEIGHT) h = CONFIG.MAX_TEXTAREA_HEIGHT;
-    chatInput.style.height = "auto";
-    chatInput.style.height = h + "px";
+    renderRefs.chatInput.style.height = "auto";
+    renderRefs.chatInput.style.height = h + "px";
   });
 }
-
+ 
 // ================================================================
 // 主题切换
 // ================================================================
-
+ 
 function initTheme() {
   var savedTheme = null;
   try { savedTheme = localStorage.getItem(CONFIG.THEME_STORAGE_KEY); } catch (e) {}
   applyTheme(savedTheme);
 }
-
+ 
 function applyTheme(theme) {
   if (theme === "dark") {
     document.body.classList.add("is-dark");
@@ -201,102 +283,89 @@ function applyTheme(theme) {
     );
   }
 }
-
+ 
 function toggleTheme() {
   var isDark = document.body.classList.contains("is-dark");
   var next = isDark ? "light" : "dark";
   try { localStorage.setItem(CONFIG.THEME_STORAGE_KEY, next); } catch (e) {}
   applyTheme(next);
 }
-
+ 
 // ================================================================
 // 自动播报
 // ================================================================
-
+ 
 function initAutoPlay() {
   var savedAutoPlay = null;
   try { savedAutoPlay = localStorage.getItem(CONFIG.AUTO_PLAY_KEY); } catch (e) {}
   applyAutoPlay(savedAutoPlay === "1");
-  window.autoPlayTTSReady = true;
+  state.autoPlayTTSReady = true;
 }
-
+ 
 function applyAutoPlay(enabled) {
-  window.autoPlayTTS = !!enabled;
+  state.autoPlayTTS = !!enabled;
   updateHeaderPlayBtn();
 }
-
+ 
 function toggleAutoPlay() {
-  var streamTTS = window._streamTTS;
-  if (streamTTS && (streamTTS.isPlaying || streamTTS.isPaused)) {
-    if (streamTTS.isPlaying) {
-      // 暂停
-      if (streamTTS.audioEl) streamTTS.audioEl.pause();
-      streamTTS.isPaused = true;
-      streamTTS.isPlaying = false;
-      updateHeaderPlayBtn();
+  var streamState = getStreamTTSState();
+  if (streamState && (streamState.isPlaying || streamState.isPaused)) {
+    if (streamState.isPlaying) {
+      pauseStreamTTS();
     } else {
-      // 继续
-      streamTTS.isPaused = false;
-      streamTTS.isPlaying = true;
-      if (streamTTS.audioEl) streamTTS.audioEl.play().catch(function(){});
-      updateHeaderPlayBtn();
+      resumeStreamTTS();
     }
     return;
   }
-
-  applyAutoPlay(!window.autoPlayTTS);
-  try { localStorage.setItem(CONFIG.AUTO_PLAY_KEY, window.autoPlayTTS ? "1" : "0"); } catch (e) {}
+ 
+  applyAutoPlay(!state.autoPlayTTS);
+  try { localStorage.setItem(CONFIG.AUTO_PLAY_KEY, state.autoPlayTTS ? "1" : "0"); } catch (e) {}
 }
-
+ 
 // ================================================================
 // 确认弹窗处理
 // ================================================================
-
+ 
 function onConfirmOk() {
-  if (!pendingOperation) {
+  if (!state.pendingOperation) {
     hideConfirm();
     return;
   }
-
-  if (pendingOperation.type === 'session') {
-    var sid = pendingOperation.id;
-    pendingOperation = null;
+ 
+  if (state.pendingOperation.type === 'session') {
+    var sid = state.pendingOperation.id;
+    state.pendingOperation = null;
     hideConfirm();
     // 使用 render.js 中的 deleteSession
     window.deleteSession(sid);
     renderSidebarList();
     return;
   }
-
-  if (pendingOperation.type === 'msg') {
-    var id = parseInt(pendingOperation.msgDiv.dataset.msgId, 10);
+ 
+  if (state.pendingOperation.type === 'msg') {
+    var id = parseInt(state.pendingOperation.msgDiv.dataset.msgId, 10);
     removeMessageData(id);
-    pendingOperation.msgDiv.remove();
-    pendingOperation = null;
+    state.pendingOperation.msgDiv.remove();
+    state.pendingOperation = null;
     saveChatHistory();
     if (chatData().length === 0) renderEmptyState();
     hideConfirm();
     return;
   }
-
-  if (pendingOperation.type === 'clearAll') {
-    if (abortController) { abortController.abort(); abortController = null; }
+ 
+  if (state.pendingOperation.type === 'clearAll') {
+    if (state.abortController) { state.abortController.abort(); state.abortController = null; }
     toggleSendButton(false);
-    var s = currentSession();
-    if (s) {
-      s.messages = [];
-      s.title = "新话题";
-    }
-    saveSessions();
+    clearCurrentSessionMessages();
     renderEmptyState();
     hideConfirm();
     return;
   }
-
-  pendingOperation = null;
+ 
+  state.pendingOperation = null;
   hideConfirm();
 }
-
+ 
 function trapFocus(e) {
   var chatConfirmOverlay = document.getElementById("chatConfirmOverlay");
   if (!chatConfirmOverlay.classList.contains("show")) return;
@@ -313,33 +382,285 @@ function trapFocus(e) {
     first.focus();
   }
 }
-
+ 
 // ================================================================
 // 新话题
 // ================================================================
-
+ 
 function startNewSession() {
-  if (abortController) { abortController.abort(); abortController = null; }
+  if (state.abortController) { state.abortController.abort(); state.abortController = null; }
   toggleSendButton(false);
-
+ 
   var cur = currentSession();
   if (cur && cur.messages.length === 0) {
     closeSidebar();
     renderEmptyState();
-    chatInput.focus();
+    renderRefs.chatInput.focus();
     return;
   }
-
+ 
   createSession();
   closeSidebar();
   renderEmptyState();
-  chatInput.focus();
+  renderRefs.chatInput.focus();
 }
-
+ 
+// ================================================================
+// 认证（登录/注册）
+// ================================================================
+ 
+var _authMode = 'login';
+ 
+function setupAuth() {
+  var userBtn = document.getElementById('authUserBtn');
+  var overlay = document.getElementById('authOverlay');
+  var closeBtn = document.getElementById('authCloseBtn');
+  var submitBtn = document.getElementById('authSubmitBtn');
+  var switchBtn = document.getElementById('authSwitchBtn');
+  var nicknameField = document.getElementById('authNicknameField');
+  var title = document.getElementById('authTitle');
+  var switchText = document.getElementById('authSwitchText');
+ 
+  if (userBtn) {
+    userBtn.addEventListener('click', function () {
+      if (isLoggedIn()) {
+        if (confirm('确定要退出登录吗？退出后本地聊天记录将被清除。')) {
+          logout();
+        }
+      } else {
+        openAuthModal('login');
+      }
+    });
+  }
+ 
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeAuthModal);
+  }
+  if (overlay) {
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) closeAuthModal();
+    });
+  }
+ 
+  if (switchBtn) {
+    switchBtn.addEventListener('click', function () {
+      if (_authMode === 'login') {
+        openAuthModal('register');
+      } else {
+        openAuthModal('login');
+      }
+    });
+  }
+ 
+  if (submitBtn) {
+    submitBtn.addEventListener('click', handleAuthSubmit);
+  }
+ 
+  ['authEmail', 'authPassword', 'authNickname'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleAuthSubmit();
+        }
+      });
+    }
+  });
+ 
+  var _lastLoginState = isLoggedIn();
+  console.log('[灵知] setupAuth - 初始登录状态:', _lastLoginState);
+  document.addEventListener('auth:changed', function () {
+    var nowLoggedIn = isLoggedIn();
+    console.log('[灵知] auth:changed - 之前:', _lastLoginState, ', 现在:', nowLoggedIn);
+    updateAuthUI();
+    if (nowLoggedIn) {
+      if (!_lastLoginState) {
+        console.log('[灵知] auth:changed - 从登出变为登录，调用 handleLogin');
+        handleLogin();
+      } else {
+        console.log('[灵知] auth:changed - 已是登录状态，跳过 handleLogin');
+      }
+    } else {
+      if (_lastLoginState) {
+        console.log('[灵知] auth:changed - 从登录变为登出，调用 handleLogout');
+        handleLogout();
+      }
+    }
+    _lastLoginState = nowLoggedIn;
+  });
+ 
+  updateAuthUI();
+ 
+  if (isLoggedIn()) {
+    console.log('[灵知] setupAuth - 页面加载时已登录，调用 fetchMe 和 handleLogin');
+    fetchMe();
+    handleLogin();
+  }
+}
+ 
+function openAuthModal(mode) {
+  _authMode = mode || 'login';
+  var overlay = document.getElementById('authOverlay');
+  var nicknameField = document.getElementById('authNicknameField');
+  var title = document.getElementById('authTitle');
+  var switchText = document.getElementById('authSwitchText');
+  var switchBtn = document.getElementById('authSwitchBtn');
+  var submitBtn = document.getElementById('authSubmitBtn');
+  var errorEl = document.getElementById('authError');
+ 
+  if (!overlay) return;
+ 
+  if (mode === 'register') {
+    title.textContent = '注册账号';
+    nicknameField.style.display = 'block';
+    switchText.textContent = '已有账号？';
+    switchBtn.textContent = '去登录';
+    submitBtn.textContent = '注册';
+  } else {
+    title.textContent = '登录';
+    nicknameField.style.display = 'none';
+    switchText.textContent = '还没有账号？';
+    switchBtn.textContent = '去注册';
+    submitBtn.textContent = '登录';
+  }
+ 
+  errorEl.textContent = '';
+  document.getElementById('authEmail').value = '';
+  document.getElementById('authPassword').value = '';
+  var nickInput = document.getElementById('authNickname');
+  if (nickInput) nickInput.value = '';
+ 
+  overlay.classList.add('show');
+  setTimeout(function () {
+    document.getElementById('authEmail').focus();
+  }, 100);
+}
+ 
+function closeAuthModal() {
+  var overlay = document.getElementById('authOverlay');
+  if (overlay) overlay.classList.remove('show');
+}
+ 
+function handleAuthSubmit() {
+  var emailEl = document.getElementById('authEmail');
+  var passwordEl = document.getElementById('authPassword');
+  var nicknameEl = document.getElementById('authNickname');
+  var errorEl = document.getElementById('authError');
+  var submitBtn = document.getElementById('authSubmitBtn');
+ 
+  var email = emailEl.value.trim();
+  var password = passwordEl.value;
+  var nickname = nicknameEl ? nicknameEl.value.trim() : '';
+ 
+  if (!email) {
+    errorEl.textContent = '请输入邮箱';
+    return;
+  }
+  if (!password) {
+    errorEl.textContent = '请输入密码';
+    return;
+  }
+  if (_authMode === 'register' && password.length < 6) {
+    errorEl.textContent = '密码至少 6 位';
+    return;
+  }
+ 
+  submitBtn.disabled = true;
+  errorEl.textContent = '';
+ 
+  var action = _authMode === 'register'
+    ? register(email, password, nickname)
+    : login(email, password);
+ 
+  action.then(function () {
+    submitBtn.disabled = false;
+    closeAuthModal();
+  }).catch(function (err) {
+    submitBtn.disabled = false;
+    errorEl.textContent = err.message || '操作失败';
+  });
+}
+ 
+function updateAuthUI() {
+  var userNameEl = document.getElementById('authUserName');
+  if (!userNameEl) return;
+ 
+  var user = currentUser();
+  if (user) {
+    userNameEl.textContent = user.nickname || user.email;
+  } else {
+    userNameEl.textContent = '未登录';
+  }
+}
+ 
+/** 退出登录后清理：清除本地聊天记录、重置界面 */
+function handleLogout() {
+  // 停止生成中内容
+  if (state.abortController) {
+    state.abortController.abort();
+    state.abortController = null;
+  }
+  toggleSendButton(false);
+  stopAllSpeak();
+  updateHeaderPlayBtn();
+ 
+  // 清除本地所有会话
+  clearAllLocalSessions();
+ 
+  // 创建一个新的空会话
+  createSession();
+ 
+  // 直接清空聊天消息 DOM，确保消息被清除（强制刷新）
+  var chatMessagesEl = document.getElementById('chatMessages');
+  if (chatMessagesEl) {
+    chatMessagesEl.innerHTML = '';
+    chatMessagesEl.innerHTML = '<div class="chat-empty-tip"><span class="big">👋</span>你好！我是灵知</div>';
+  }
+ 
+  // 重新渲染侧边栏
+  renderSidebarList();
+ 
+  // 清空输入框
+  if (renderRefs.chatInput) {
+    renderRefs.chatInput.value = '';
+    renderRefs.chatInput.style.height = 'auto';
+    renderRefs.chatInput.focus();
+  }
+ 
+  // 最后更新用户 UI（这会更新显示"未登录"）
+  updateAuthUI();
+}
+ 
+/** 登录后处理：从服务端加载历史聊天记录 */
+function handleLogin() {
+  console.log('[灵知] handleLogin - 开始加载服务端数据...');
+  console.log('[灵知] handleLogin - 加载前本地会话数:', state.sessions.length);
+  loadAllFromServer().then(function () {
+    console.log('[灵知] handleLogin - 服务端数据加载完成，当前会话数:', state.sessions.length);
+    // 加载完成后重新渲染
+    if (state.sessions.length === 0) {
+      console.log('[灵知] handleLogin - 无会话，创建新会话');
+      createSession();
+    }
+    renderCurrentSession();
+    renderSidebarList();
+    console.log('[灵知] handleLogin - 界面渲染完成');
+  }).catch(function(err) {
+    console.error('[灵知] handleLogin - 加载服务端数据失败:', err);
+    // 即使加载失败，也确保有一个新会话
+    if (state.sessions.length === 0) {
+      createSession();
+    }
+    renderCurrentSession();
+    renderSidebarList();
+  });
+}
+ 
 // ================================================================
 // 暴露到全局（供 HTML 和其他模块调用）
 // ================================================================
-
+ 
 window.startNewSession = startNewSession;
 window.openSidebar = openSidebar;
 window.closeSidebar = closeSidebar;
@@ -347,17 +668,56 @@ window.renderSidebarList = renderSidebarList;
 window.confirmDeleteSession = confirmDeleteSession;
 window.sendMessage = sendMessage;
 window.toggleAutoPlay = toggleAutoPlay;
-
+ 
 // 重新导出 state 到全局
+Object.defineProperty(window, 'state', {
+  get: function() { return state; }
+});
 Object.defineProperty(window, 'sessions', {
-  get: function() { return sessions; }
+  get: function() { return state.sessions; }
 });
 Object.defineProperty(window, 'currentSessionId', {
-  get: function() { return currentSessionId; },
-  set: function(val) { currentSessionId = val; }
+  get: function() { return state.currentSessionId; },
+  set: function(val) { state.currentSessionId = val; }
 });
 window.switchSession = function(id) {
-  currentSessionId = id;
+  state.currentSessionId = id;
   saveSessions();
 };
 window.deleteSession = deleteSession;
+ 
+// ================================================================
+// 启动应用
+// ================================================================
+ 
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function () {
+    try {
+      setupChat();
+    } catch (e) {
+      handleInitError(e);
+    }
+  });
+} else {
+  try {
+    setupChat();
+  } catch (e) {
+    handleInitError(e);
+  }
+}
+ 
+function handleInitError(err) {
+  console.error('[灵知] 初始化失败：', err);
+  showInitError(err);
+}
+ 
+function showInitError(err) {
+  var messages = document.getElementById('chatMessages');
+  if (!messages) return;
+  messages.innerHTML =
+    '<div class="chat-empty-tip" style="color:#ef4444;padding:30px 20px;text-align:left;">' +
+    '<div style="font-size:1.05rem;font-weight:600;margin-bottom:10px;">⚠️ 初始化失败</div>' +
+    '<div style="font-size:0.88rem;color:#6b7280;line-height:1.6;word-break:break-all;">' +
+    String((err && err.stack) || err || '未知错误') +
+    '</div></div>';
+ }
