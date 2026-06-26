@@ -865,6 +865,50 @@ body.is-dark .followup-item:hover {
   font-size: 0.82rem;
   padding: 30px 16px;
 }
+.chat-sidebar-footer {
+  margin-top: auto;
+  padding: 12px;
+  border-top: 1px solid var(--c-border);
+}
+.chat-sidebar-user-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  font-family: inherit;
+  text-align: left;
+}
+.chat-sidebar-user-btn:hover {
+  background: var(--c-primary-soft);
+  border-color: var(--c-primary-light);
+}
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--btn-grad);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.user-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ========== 清空确认弹窗 ========== */
 .chat-confirm-overlay {
@@ -946,10 +990,12 @@ body.is-dark .followup-item:hover {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1400;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s, visibility 0.2s;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 .auth-overlay.show {
   display: flex;
