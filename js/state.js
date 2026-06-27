@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=46';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=46';
+import { CONFIG } from './config.js?v=49';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=49';
  
 // ================================================================
 // 状态对象（可读写）
@@ -198,7 +198,24 @@ export function truncateMessagesFrom(msgId) {
     syncClearSessionMessages(serverSessionId, serverMsgIds);
   }
 }
- 
+
+/** 检查是否存在空话题（没有消息的会话） */
+function hasEmptySession() {
+  return state.sessions.some(function (s) { return s.messages && s.messages.length === 0; });
+}
+
+/** 确保存在一个空话题（没有则创建） */
+export function ensureEmptySession() {
+  if (!hasEmptySession()) {
+    createSession();
+  }
+}
+
+/** 获取第一个空话题 */
+function getFirstEmptySession() {
+  return state.sessions.find(function (s) { return s.messages && s.messages.length === 0; });
+}
+
 /** 创建新会话 */
 export function createSession() {
   var s = {
@@ -246,9 +263,17 @@ export function deleteSession(id) {
   }
  
   state.sessions = state.sessions.filter(function (s) { return s.id !== id; });
- 
+
+  // 删除后：优先切换到已有的空话题，没有则创建新空话题
   if (state.currentSessionId === id || state.sessions.length === 0) {
-    createSession();
+    // 优先找已有的空话题
+    var emptySession = getFirstEmptySession();
+    if (emptySession) {
+      state.currentSessionId = emptySession.id;
+    } else {
+      createSession();
+    }
+    saveSessions();
   } else {
     saveSessions();
   }
@@ -344,6 +369,8 @@ export function loadSessions() {
     }
     // 同时加载删除记录
     loadDeletedIds();
+    // 确保始终有一个空话题
+    ensureEmptySession();
   } catch (e) {
     console.warn("loadSessions error:", e);
   }
