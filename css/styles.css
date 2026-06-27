@@ -139,7 +139,7 @@ body {
 .chat-header {
   background: var(--header-grad);
   color: var(--c-text);
-  padding: 5px 14px;
+  padding: 6px 14px;
   display: flex;
   justify-content: space-between;
   align-items: center;
