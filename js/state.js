@@ -613,11 +613,14 @@ export async function loadAllFromServer() {
     }
  
     console.log('[灵知] loadAllFromServer - 最终加载了', loadedSessions.length, '个会话');
- 
-    // 如果没有任何会话，创建一个新会话
-    if (loadedSessions.length === 0) {
-      console.warn('[灵知] loadAllFromServer - 无数据，创建空会话');
-      loadedSessions.push({
+
+    // 确保始终有一个空话题（放在最前面）
+    var hasEmpty = loadedSessions.some(function(s) {
+      return s.messages && s.messages.length === 0;
+    });
+    if (!hasEmpty) {
+      console.log('[灵知] loadAllFromServer - 无空话题，创建一个');
+      loadedSessions.unshift({
         id: Date.now() + '_local',
         serverSessionId: null,
         title: '新话题',
@@ -625,7 +628,7 @@ export async function loadAllFromServer() {
         messages: [],
       });
     }
- 
+
     state.sessions = loadedSessions;
     state.nextId = maxMsgId + 1;
 
@@ -638,10 +641,6 @@ export async function loadAllFromServer() {
       state.currentSessionId = state.sessions[0].id;
       console.log('[灵知] loadAllFromServer - 当前会话不存在，选中第一个:', state.currentSessionId);
     }
-
-    // 确保有一个空话题（从服务器拉取的数据里可能没有空话题）
-    // 注意：此操作不会改变 currentSessionId，因为它只是检查和创建
-    ensureEmptySession();
 
     saveSessions();
     console.log('[灵知] loadAllFromServer - 完成，最终会话数:', state.sessions.length);
