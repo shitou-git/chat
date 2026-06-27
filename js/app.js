@@ -187,7 +187,7 @@ export function setupChat() {
  
 var _syncThrottleTimer = null;
 var _lastServerRefresh = 0;
-var SERVER_REFRESH_INTERVAL = 30000;
+var SERVER_REFRESH_INTERVAL = 200000;
  
 function setupMultiTabSync() {
   // 1) 监听 storage 事件：其他标签页修改 localStorage 时触发
@@ -221,7 +221,7 @@ function setupMultiTabSync() {
  
     var now = Date.now();
     if (now - _lastServerRefresh < SERVER_REFRESH_INTERVAL) {
-      console.log('[灵知] 页面重新可见，但距离上次刷新不足30秒，跳过');
+      console.log('[灵知] 页面重新可见，但距离上次刷新不足2分钟，跳过');
       return;
     }
     console.log('[灵知] 页面重新可见，从服务端刷新数据');
