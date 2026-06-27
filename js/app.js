@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=50';
+import { CONFIG } from './config.js?v=51';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=50';
+} from './state.js?v=51';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=50';
+} from './render.js?v=51';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=50';
+} from './chat.js?v=51';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=50';
+} from './tts.js?v=51';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=50';
+} from './auth.js?v=51';
  
 // ================================================================
 // 事件绑定
@@ -340,6 +340,7 @@ function onConfirmOk() {
     // 使用 render.js 中的 deleteSession
     window.deleteSession(sid);
     renderSidebarList();
+    renderCurrentSession();
     return;
   }
  
