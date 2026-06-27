@@ -1,4 +1,4 @@
-﻿
+
 /**
  * DOM 渲染模块
  * 包含消息元素创建、侧栏渲染、相关问题按钮等 DOM 操作
@@ -11,16 +11,16 @@ import {
   extractFollowUpQuestions,
   generateFallbackQuestions
 
-} from './utils.js?v=53';
+} from './utils.js?v=54';
 import {
   state,
   currentSession,
   chatData,
   truncateMessagesFrom
 
-} from './state.js?v=53';
-import { CONFIG } from './config.js?v=53';
-import { attachSpeakButton } from './tts.js?v=53';
+} from './state.js?v=54';
+import { CONFIG } from './config.js?v=54';
+import { attachSpeakButton } from './tts.js?v=54';
  
 // 导出到全局，供 chat.js 和 app.js 使用
 // 用对象包装避免 ES Module 只读绑定问题

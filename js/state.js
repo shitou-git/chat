@@ -1,4 +1,4 @@
-﻿
+
 
 /**
  * 状态管理模块
@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=53';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=53';
+import { CONFIG } from './config.js?v=54';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=54';
  
 // ================================================================
 // 状态对象（可读写）
@@ -25,7 +25,7 @@ export var state = {
  
   /** pendingOperation: { type: 'msg' | 'session' | 'clearAll', ... } */
   pendingOperation: null,
-  scrollRafId: null;
+  scrollRafId: null,
 
   /** 已删除的会话 ID 集合（服务端会话ID，用于过滤服务端数据） */
   deletedSessionIds: new Set(),

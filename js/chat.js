@@ -1,17 +1,17 @@
-﻿
+
 /**
  * 聊天模块
  * 包含消息发送、流式渲染、API 调用等核心逻辑
  */
  
-import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=53';
+import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=54';
 import {
   state,
   addMessageData,
   chatData,
   currentSession,
   saveChatHistory
-} from './state.js?v=53';
+} from './state.js?v=54';
 import {
   renderContent,
   renderContentLight,
@@ -21,7 +21,7 @@ import {
   extractFollowUpQuestions,
   generateFallbackQuestions,
   escapeHtml
-} from './utils.js?v=53';
+} from './utils.js?v=54';
 import {
   renderCurrentSession,
   renderEmptyState,
@@ -30,13 +30,13 @@ import {
   createMessageElement,
   renderFollowUpButtons,
   domRefs as renderRefs
-} from './render.js?v=53';
+} from './render.js?v=54';
 import {
   stopAllSpeak,
   updateHeaderPlayBtn,
   attachSpeakButton as attachSpeakButtonToBubble
-} from './tts.js?v=53';
-import { authToken, isLoggedIn } from './auth.js?v=53';
+} from './tts.js?v=54';
+import { authToken, isLoggedIn } from './auth.js?v=54';
  
 // ================================================================
 // 发送/停止

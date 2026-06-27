@@ -1,10 +1,10 @@
-﻿
+
 /**
  * 工具函数模块
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=53';
+import { IDENTITY_REPLY } from './config.js?v=54';
  
 // ================================================================
 // HTML 转义
