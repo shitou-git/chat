@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=46';
+import { CONFIG } from './config.js?v=50';
 import {
   state,
   loadSessions,
@@ -17,8 +17,9 @@ import {
   clearAllLocalSessions,
   loadAllFromServer,
   clearCurrentSessionMessages,
-  refreshFromServer
-} from './state.js?v=46';
+  refreshFromServer,
+  ensureEmptySession
+} from './state.js?v=50';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -31,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=46';
+} from './render.js?v=50';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=46';
+} from './chat.js?v=50';
 import {
   initVoices,
   initStreamTTS,
@@ -45,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=46';
+} from './tts.js?v=50';
 import {
   register,
   login,
@@ -53,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=46';
+} from './auth.js?v=50';
  
 // ================================================================
 // 事件绑定
@@ -163,10 +164,10 @@ export function setupChat() {
   loadSessions();
   initVoices();
   initStreamTTS();
- 
-  if (state.sessions.length === 0) {
-    createSession();
-  } else {
+
+  // 确保始终有一个空话题
+  ensureEmptySession();
+  if (!state.currentSessionId) {
     state.currentSessionId = state.sessions[0].id;
   }
   renderCurrentSession();
