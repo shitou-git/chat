@@ -19,7 +19,6 @@ export const CONFIG = {
   /** 存储键名 */
   STORAGE_KEY: "ai_chat_sessions",
   THEME_STORAGE_KEY: "lingzhi_theme",
-  AUTO_PLAY_KEY: "lingzhi_auto_play",
   TOKEN_KEY: "lingzhi_token",
   USER_KEY: "lingzhi_user",
   GUEST_MSG_KEY: "lingzhi_guest_msg_count",

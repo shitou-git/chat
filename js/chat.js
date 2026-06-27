@@ -4,25 +4,24 @@
  * 包含消息发送、流式渲染、API 调用等核心逻辑
  */
  
-import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=51';
+import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=52';
 import {
   state,
   addMessageData,
   chatData,
   currentSession,
   saveChatHistory
-} from './state.js?v=51';
+} from './state.js?v=52';
 import {
   renderContent,
   renderContentLight,
   sanitizeIdentity,
-  stripMarkdown,
   delay,
   autoScaleKatex,
   extractFollowUpQuestions,
   generateFallbackQuestions,
   escapeHtml
-} from './utils.js?v=51';
+} from './utils.js?v=52';
 import {
   renderCurrentSession,
   renderEmptyState,
@@ -31,22 +30,13 @@ import {
   createMessageElement,
   renderFollowUpButtons,
   domRefs as renderRefs
-} from './render.js?v=51';
+} from './render.js?v=52';
 import {
-  initStreamTTS,
-  resetStreamTTS,
   stopAllSpeak,
-  autoPlayStreamStart,
-  autoPlayStreamFeed,
-  autoPlayStreamEnd,
-  autoPlayStreamStop,
-  isAutoPlayStreaming,
-  speakText,
-  hasWorkerTTS,
   updateHeaderPlayBtn,
   attachSpeakButton as attachSpeakButtonToBubble
-} from './tts.js?v=51';
-import { authToken, isLoggedIn } from './auth.js?v=51';
+} from './tts.js?v=52';
+import { authToken, isLoggedIn } from './auth.js?v=52';
  
 // ================================================================
 // 发送/停止
@@ -240,12 +230,7 @@ export async function sendMessage() {
  
     pendingText = "";
     lastAppendTs = nowTs;
- 
-    // 流式 TTS
-    if (state.autoPlayTTS && state.autoPlayTTSReady && hasWorkerTTS()) {
-      autoPlayStreamFeed(fullContent);
-    }
- 
+
     if (!force) {
       if (streamMode === "plaintext") {
         if (nowTs - lastScrollTs >= 120) {
@@ -392,17 +377,7 @@ export async function sendMessage() {
     var aiMsg = addMessageData("assistant", fullContent);
     aiMsgDiv.dataset.msgId = aiMsg.id;
     finalRender(fullContent, aiMsg);
- 
-    // 自动播报
-    if (state.autoPlayTTS && state.autoPlayTTSReady) {
-      if (hasWorkerTTS() && isAutoPlayStreaming()) {
-        autoPlayStreamEnd(fullContent);
-      } else if (!hasWorkerTTS()) {
-        var plainText = stripMarkdown(fullContent);
-        if (plainText) speakText(plainText, null);
-      }
-    }
- 
+
     var ttfbMs = firstTokenTs ? firstTokenTs - t0 : null;
     console.log(
       "[灵知-流式] 全文 " + fullContent.length + " 字符" +
@@ -424,14 +399,6 @@ export async function sendMessage() {
         var partialMsg = addMessageData("assistant", fullContent);
         aiMsgDiv.dataset.msgId = partialMsg.id;
         finalRender(fullContent, partialMsg);
-        if (state.autoPlayTTS && state.autoPlayTTSReady) {
-          if (hasWorkerTTS() && isAutoPlayStreaming()) {
-            autoPlayStreamStop();
-          } else if (!hasWorkerTTS()) {
-            var partialText = stripMarkdown(fullContent);
-            if (partialText) speakText(partialText, null);
-          }
-        }
         saveChatHistory();
       } else {
         aiMsgDiv.remove();

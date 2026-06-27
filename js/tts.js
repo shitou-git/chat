@@ -3,13 +3,11 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=51';
-import { stripMarkdown } from './utils.js?v=51';
-import { state } from './state.js?v=51';
- 
+import { CONFIG } from './config.js?v=52';
+import { stripMarkdown } from './utils.js?v=52';
+
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
-export var _autoPlayStream = null;
  
 // ================================================================
 // Toast 提示
@@ -164,13 +162,9 @@ export function updateHeaderPlayBtn() {
     btn.classList.add('is-active');
     btn.title = '继续播报';
     if (iconSpan) iconSpan.textContent = '▶';
-  } else if (state.autoPlayTTS) {
-    btn.classList.add('is-active');
-    btn.title = '关闭自动播报';
-    if (iconSpan) iconSpan.textContent = '🔊';
   } else {
     btn.classList.remove('is-active');
-    btn.title = '开启自动播报';
+    btn.title = '语音播报';
     if (iconSpan) iconSpan.textContent = '🔊';
   }
 }
@@ -229,7 +223,6 @@ export function stopStreamTTS() {
     try { _streamTTS.audioEl.pause(); } catch (e) {}
   }
   updateBubblePlayBtn(_streamTTS.btnEl, 'stopped');
-  _autoPlayStream = null;
   _currentSpeakBtn = null;
   updateHeaderPlayBtn();
   hideToast();
@@ -555,115 +548,6 @@ export function streamSpeakWorker(text, btnEl) {
  
   showToast('正在合成语音...');
   startSynthesisQueue();
-}
- 
-export function autoPlayStreamStart() {
-  if (!state.autoPlayTTS || !state.autoPlayTTSReady) return;
-  if (!hasWorkerTTS()) return;
- 
-  stopAllSpeak();
-  resetStreamTTS();
-  _autoPlayStream = {
-    lastSentCharIndex: 0,
-    finished: false,
-  };
-  _streamTTS.allReceived = false;
-  _streamTTS.isPlaying = false;
- 
-  showToast('正在合成语音...');
-  startSynthesisQueue();
-}
- 
-export function autoPlayStreamFeed(text) {
-  if (!state.autoPlayTTS || !state.autoPlayTTSReady || !hasWorkerTTS()) return;
- 
-  if (!_autoPlayStream) {
-    if (_streamTTS.audioEl) {
-      try { _streamTTS.audioEl.pause(); _streamTTS.audioEl.src = ''; } catch (e) {}
-      _streamTTS.audioEl = null;
-    }
-    for (var i = 0; i < _streamTTS.abortControllers.length; i++) {
-      try { _streamTTS.abortControllers[i].abort(); } catch (e) {}
-    }
-    _streamTTS.abortControllers = [];
-    _streamTTS.segments = [];
-    _streamTTS.synthesizedBlobs = [];
-    _streamTTS.currentPlayIndex = 0;
-    _streamTTS.isPlaying = false;
-    _streamTTS.isPaused = false;
-    _streamTTS.isStopped = false;
-    _streamTTS.totalSegments = 0;
-    _streamTTS.allReceived = false;
-    document.querySelectorAll('.speak-btn.is-speaking, .speak-btn.is-paused').forEach(function (b) {
-      b.classList.remove('is-speaking', 'is-paused');
-      b.innerHTML = '🔊';
-      b.title = '朗读';
-    });
-    hideToast();
- 
-    _autoPlayStream = {
-      lastSentCharIndex: 0,
-      finished: false,
-    };
-    _currentSpeakBtn = null;
-    updateHeaderPlayBtn();
-    showToast('正在合成语音...');
-    startSynthesisQueue();
-  }
- 
-  if (_streamTTS.isStopped) return;
- 
-  var plainText = stripMarkdown(text);
-  var newText = plainText.substring(_autoPlayStream.lastSentCharIndex);
-  if (!newText.trim()) return;
- 
-  var sentences = splitTextIntoSegments(newText);
- 
-  for (var i = 0; i < sentences.length; i++) {
-    var seg = sentences[i];
-    var charIndex = plainText.indexOf(seg, _autoPlayStream.lastSentCharIndex);
-    if (charIndex >= 0) {
-      _streamTTS.segments.push(seg);
-      _autoPlayStream.lastSentCharIndex = charIndex + seg.length;
-      _streamTTS.totalSegments = _streamTTS.totalSegments || 0;
-      _streamTTS.totalSegments++;
-    }
-  }
- 
-  if (sentences.length === 0 && newText.length >= 30) {
-    _streamTTS.segments.push(newText);
-    _autoPlayStream.lastSentCharIndex = plainText.length;
-    _streamTTS.totalSegments = _streamTTS.totalSegments || 0;
-    _streamTTS.totalSegments++;
-  }
- 
-  wakeSynthesisQueue();
-}
- 
-export function autoPlayStreamEnd(finalText) {
-  if (!_autoPlayStream) return;
- 
-  var plainText = stripMarkdown(finalText);
-  var remainingText = plainText.substring(_autoPlayStream.lastSentCharIndex);
-  if (remainingText.trim()) {
-    _streamTTS.segments.push(remainingText.trim());
-    _streamTTS.totalSegments++;
-  }
- 
-  _streamTTS.allReceived = true;
-  _autoPlayStream.finished = true;
-  wakeSynthesisQueue();
-}
- 
-export function autoPlayStreamStop() {
-  if (_autoPlayStream) {
-    stopStreamTTS();
-    _autoPlayStream = null;
-  }
-}
- 
-export function isAutoPlayStreaming() {
-  return !!_autoPlayStream;
 }
  
 export function getStreamTTSState() {

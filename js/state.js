@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=51';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=51';
+import { CONFIG } from './config.js?v=52';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=52';
  
 // ================================================================
 // 状态对象（可读写）
@@ -25,14 +25,8 @@ export var state = {
  
   /** pendingOperation: { type: 'msg' | 'session' | 'clearAll', ... } */
   pendingOperation: null,
-  scrollRafId: null,
- 
-  /** 自动播报 TTS 开关 */
-  autoPlayTTS: false,
- 
-  /** 自动播报状态是否已初始化 */
-  autoPlayTTSReady: false,
- 
+  scrollRafId: null;
+
   /** 已删除的会话 ID 集合（服务端会话ID，用于过滤服务端数据） */
   deletedSessionIds: new Set(),
  

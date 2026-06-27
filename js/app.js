@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=51';
+import { CONFIG } from './config.js?v=52';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=51';
+} from './state.js?v=52';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=51';
+} from './render.js?v=52';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=51';
+} from './chat.js?v=52';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=51';
+} from './tts.js?v=52';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=51';
+} from './auth.js?v=52';
  
 // ================================================================
 // 事件绑定
@@ -89,9 +89,9 @@ export function setupChat() {
  
   // 主题切换
   if (dom.chatThemeBtn) dom.chatThemeBtn.addEventListener("click", toggleTheme);
- 
-  // 自动播报
-  if (dom.chatAutoPlayBtn) dom.chatAutoPlayBtn.addEventListener("click", toggleAutoPlay);
+
+  // 语音播报播放/暂停
+  if (dom.chatAutoPlayBtn) dom.chatAutoPlayBtn.addEventListener("click", togglePlayPause);
  
   // 侧栏
   var chatMenuBtn = document.getElementById("chatMenuBtn");
@@ -164,6 +164,7 @@ export function setupChat() {
   loadSessions();
   initVoices();
   initStreamTTS();
+  updateHeaderPlayBtn();
 
   // 确保始终有一个空话题
   ensureEmptySession();
@@ -175,10 +176,7 @@ export function setupChat() {
  
   // 初始化主题
   initTheme();
- 
-  // 初始化自动播报
-  initAutoPlay();
- 
+
   // 多标签页数据同步（第五条）
   setupMultiTabSync();
 }
@@ -293,36 +291,19 @@ function toggleTheme() {
 }
  
 // ================================================================
-// 自动播报
+// 语音播报播放/暂停
 // ================================================================
- 
-function initAutoPlay() {
-  var savedAutoPlay = null;
-  try { savedAutoPlay = localStorage.getItem(CONFIG.AUTO_PLAY_KEY); } catch (e) {}
-  applyAutoPlay(savedAutoPlay === "1");
-  state.autoPlayTTSReady = true;
-}
- 
-function applyAutoPlay(enabled) {
-  state.autoPlayTTS = !!enabled;
-  updateHeaderPlayBtn();
-}
- 
-function toggleAutoPlay() {
+
+function togglePlayPause() {
   var streamState = getStreamTTSState();
-  if (streamState && (streamState.isPlaying || streamState.isPaused)) {
-    if (streamState.isPlaying) {
-      pauseStreamTTS();
-    } else {
-      resumeStreamTTS();
-    }
-    return;
+  if (!streamState) return;
+  if (streamState.isPlaying) {
+    pauseStreamTTS();
+  } else if (streamState.isPaused) {
+    resumeStreamTTS();
   }
- 
-  applyAutoPlay(!state.autoPlayTTS);
-  try { localStorage.setItem(CONFIG.AUTO_PLAY_KEY, state.autoPlayTTS ? "1" : "0"); } catch (e) {}
 }
- 
+
 // ================================================================
 // 确认弹窗处理
 // ================================================================
@@ -669,7 +650,7 @@ window.closeSidebar = closeSidebar;
 window.renderSidebarList = renderSidebarList;
 window.confirmDeleteSession = confirmDeleteSession;
 window.sendMessage = sendMessage;
-window.toggleAutoPlay = toggleAutoPlay;
+window.togglePlayPause = togglePlayPause;
  
 // 重新导出 state 到全局
 Object.defineProperty(window, 'state', {
