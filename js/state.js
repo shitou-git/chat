@@ -207,7 +207,21 @@ function hasEmptySession() {
 /** 确保存在一个空话题（没有则创建） */
 export function ensureEmptySession() {
   if (!hasEmptySession()) {
-    createSession();
+    // 保存当前的会话ID，创建空话题后再恢复
+    var savedCurrentId = state.currentSessionId;
+
+    var s = {
+      id: Date.now() + Math.random().toString(36).slice(2, 7),
+      title: "新话题",
+      createdAt: Date.now(),
+      messages: [],
+    };
+    state.sessions.unshift(s);
+    // 不设置 currentSessionId，保持当前会话不变
+
+    // 恢复当前的会话选择
+    state.currentSessionId = savedCurrentId;
+    saveSessions();
   }
 }
 
@@ -614,7 +628,7 @@ export async function loadAllFromServer() {
  
     state.sessions = loadedSessions;
     state.nextId = maxMsgId + 1;
- 
+
     // 尝试恢复之前选中的会话
     var currentExists = state.sessions.some(function(s) { return s.id === currentId; });
     if (currentExists) {
@@ -624,7 +638,11 @@ export async function loadAllFromServer() {
       state.currentSessionId = state.sessions[0].id;
       console.log('[灵知] loadAllFromServer - 当前会话不存在，选中第一个:', state.currentSessionId);
     }
- 
+
+    // 确保有一个空话题（从服务器拉取的数据里可能没有空话题）
+    // 注意：此操作不会改变 currentSessionId，因为它只是检查和创建
+    ensureEmptySession();
+
     saveSessions();
     console.log('[灵知] loadAllFromServer - 完成，最终会话数:', state.sessions.length);
   } catch (e) {
