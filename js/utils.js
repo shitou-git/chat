@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=55';
+import { IDENTITY_REPLY } from './config.js?v=56';
  
 // ================================================================
 // HTML 转义
@@ -879,7 +879,8 @@ function latexToSpeakableSingle(latex) {
           '-': '负',
           '+': '正',
         };
-        result += escaped[nextCh] || nextCh;
+        var mappedVal = escaped[nextCh];
+        result += mappedVal !== undefined ? mappedVal : nextCh;
         i++;
       }
     } else if (ch === '^') {
