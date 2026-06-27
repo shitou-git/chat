@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=52';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=52';
+import { CONFIG } from './config.js?v=53';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=53';
  
 // ================================================================
 // 状态对象（可读写）

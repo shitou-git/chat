@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=52';
+import { IDENTITY_REPLY } from './config.js?v=53';
  
 // ================================================================
 // HTML 转义
@@ -565,18 +565,419 @@ export function generateFallbackQuestions(text, userQuestion) {
 }
  
 // ================================================================
+// LaTeX 公式转中文朗读文本
+// ================================================================
+
+var _latexCmdMap = null;
+
+function getLatexCmdMap() {
+  if (_latexCmdMap) return _latexCmdMap;
+  _latexCmdMap = {
+    'alpha': '阿尔法',
+    'beta': '贝塔',
+    'gamma': '伽马',
+    'delta': '德尔塔',
+    'epsilon': '艾普西龙',
+    'varepsilon': '艾普西龙',
+    'zeta': '泽塔',
+    'eta': '伊塔',
+    'theta': '西塔',
+    'vartheta': '西塔',
+    'iota': '约塔',
+    'kappa': '卡帕',
+    'lambda': '兰姆达',
+    'mu': '缪',
+    'nu': '纽',
+    'xi': '克西',
+    'omicron': '奥米克戎',
+    'pi': '派',
+    'varpi': '派',
+    'rho': '柔',
+    'varrho': '柔',
+    'sigma': '西格马',
+    'varsigma': '西格马',
+    'tau': '陶',
+    'upsilon': '宇普西龙',
+    'phi': '斐',
+    'varphi': '斐',
+    'chi': '卡伊',
+    'psi': '普西',
+    'omega': '欧米伽',
+    'Gamma': '大写伽马',
+    'Delta': '大写德尔塔',
+    'Theta': '大写西塔',
+    'Lambda': '大写兰姆达',
+    'Xi': '大写克西',
+    'Pi': '大写派',
+    'Sigma': '大写西格马',
+    'Upsilon': '大写宇普西龙',
+    'Phi': '大写斐',
+    'Psi': '大写普西',
+    'Omega': '大写欧米伽',
+    'times': '乘以',
+    'div': '除以',
+    'pm': '正负',
+    'mp': '负正',
+    'cdot': '乘以',
+    'circ': '度',
+    'leq': '小于等于',
+    'le': '小于等于',
+    'geq': '大于等于',
+    'ge': '大于等于',
+    'neq': '不等于',
+    'ne': '不等于',
+    'approx': '约等于',
+    'equiv': '恒等于',
+    'sim': '相似于',
+    'propto': '正比于',
+    'infty': '无穷大',
+    'sum': '求和',
+    'prod': '求积',
+    'int': '积分',
+    'iint': '二重积分',
+    'iiint': '三重积分',
+    'oint': '曲线积分',
+    'partial': '偏',
+    'nabla': '倒三角',
+    'rightarrow': '右箭头',
+    'to': '箭头',
+    'leftarrow': '左箭头',
+    'leftrightarrow': '双向箭头',
+    'Rightarrow': '右箭头',
+    'Leftarrow': '左箭头',
+    'Leftrightarrow': '双向箭头',
+    'uparrow': '上箭头',
+    'downarrow': '下箭头',
+    'in': '属于',
+    'notin': '不属于',
+    'subset': '包含于',
+    'supset': '包含',
+    'subseteq': '包含于',
+    'supseteq': '包含',
+    'cup': '并集',
+    'cap': '交集',
+    'emptyset': '空集',
+    'forall': '对任意',
+    'exists': '存在',
+    'therefore': '所以',
+    'because': '因为',
+    'angle': '角',
+    'perp': '垂直于',
+    'parallel': '平行于',
+    'triangle': '三角形',
+    'square': '正方形',
+    'circ': '圆',
+    'log': '对数',
+    'ln': '自然对数',
+    'sin': '正弦',
+    'cos': '余弦',
+    'tan': '正切',
+    'cot': '余切',
+    'sec': '正割',
+    'csc': '余割',
+    'arcsin': '反正弦',
+    'arccos': '反余弦',
+    'arctan': '反正切',
+    'sinh': '双曲正弦',
+    'cosh': '双曲余弦',
+    'tanh': '双曲正切',
+    'exp': '指数',
+    'sqrt': '根号',
+    'frac': '分数',
+    'text': '',
+    'mathrm': '',
+    'mathbf': '',
+    'mathcal': '',
+    'mathit': '',
+    'mathbb': '',
+    'underline': '下划线',
+    'overline': '上划线',
+    'hat': '帽子',
+    'tilde': '波浪',
+    'dot': '点',
+    'ddot': '两点',
+    'vec': '向量',
+    'bar': '横线',
+    'breve': '短音符号',
+    'check': '抑扬符',
+    'acute': '重音',
+    'grave': '抑音',
+  };
+  return _latexCmdMap;
+}
+
+function readLatexGroup(s, startIdx) {
+  if (s.charAt(startIdx) !== '{') {
+    return { content: s.charAt(startIdx), end: startIdx + 1 };
+  }
+  var depth = 1;
+  var content = '';
+  var i = startIdx + 1;
+  while (i < s.length && depth > 0) {
+    var ch = s.charAt(i);
+    if (ch === '\\' && i + 1 < s.length) {
+      content += ch + s.charAt(i + 1);
+      i += 2;
+      continue;
+    }
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    if (depth > 0) content += ch;
+    i++;
+  }
+  return { content: content, end: i };
+}
+
+function latexToSpeakableSingle(latex) {
+  var s = latex.trim();
+  if (!s) return '';
+
+  var cmdMap = getLatexCmdMap();
+  var result = '';
+  var i = 0;
+
+  while (i < s.length) {
+    var ch = s.charAt(i);
+
+    if (ch === '\\') {
+      i++;
+      if (i >= s.length) break;
+      var nextCh = s.charAt(i);
+
+      if (/[a-zA-Z]/.test(nextCh)) {
+        var cmdName = '';
+        while (i < s.length && /[a-zA-Z*]/.test(s.charAt(i))) {
+          cmdName += s.charAt(i);
+          i++;
+        }
+
+        var baseCmd = cmdName.replace(/\*$/, '');
+
+        if (cmdMap.hasOwnProperty(baseCmd)) {
+          var spoken = cmdMap[baseCmd];
+
+          if (baseCmd === 'sqrt') {
+            var optArg = null;
+            if (i < s.length && s.charAt(i) === '[') {
+              var optEnd = s.indexOf(']', i);
+              if (optEnd !== -1) {
+                optArg = s.substring(i + 1, optEnd);
+                i = optEnd + 1;
+              }
+            }
+            if (i < s.length && s.charAt(i) === '{') {
+              var grp = readLatexGroup(s, i);
+              i = grp.end;
+              var inner = latexToSpeakableSingle(grp.content);
+              if (optArg) {
+                result += optArg + '次根号下' + inner;
+              } else {
+                result += '根号下' + inner;
+              }
+            } else {
+              result += spoken;
+            }
+          } else if (baseCmd === 'frac') {
+            if (i < s.length && s.charAt(i) === '{') {
+              var numGrp = readLatexGroup(s, i);
+              i = numGrp.end;
+              var num = latexToSpeakableSingle(numGrp.content);
+              if (i < s.length && s.charAt(i) === '{') {
+                var denGrp = readLatexGroup(s, i);
+                i = denGrp.end;
+                var den = latexToSpeakableSingle(denGrp.content);
+                result += den + '分之' + num;
+              } else {
+                result += '分数' + num;
+              }
+            } else {
+              result += spoken;
+            }
+          } else if (baseCmd === 'text' || baseCmd === 'mathrm' || baseCmd === 'mathbf' ||
+                     baseCmd === 'mathcal' || baseCmd === 'mathit' || baseCmd === 'mathbb') {
+            if (i < s.length && s.charAt(i) === '{') {
+              var txtGrp = readLatexGroup(s, i);
+              i = txtGrp.end;
+              result += txtGrp.content;
+            }
+          } else if (baseCmd === 'sum' || baseCmd === 'prod' || baseCmd === 'int' ||
+                     baseCmd === 'iint' || baseCmd === 'iiint') {
+            result += spoken;
+            if (i < s.length && s.charAt(i) === '_') {
+              i++;
+              if (i < s.length) {
+                var subGrp = readLatexGroup(s, i);
+                i = subGrp.end;
+                var subText = latexToSpeakableSingle(subGrp.content);
+                result += '从' + subText;
+                if (i < s.length && s.charAt(i) === '^') {
+                  i++;
+                  var supGrp = readLatexGroup(s, i);
+                  i = supGrp.end;
+                  var supText = latexToSpeakableSingle(supGrp.content);
+                  result += '到' + supText;
+                }
+              }
+            } else if (i < s.length && s.charAt(i) === '^') {
+              i++;
+              var supGrp2 = readLatexGroup(s, i);
+              i = supGrp2.end;
+              result += '到' + latexToSpeakableSingle(supGrp2.content);
+            }
+          } else if (baseCmd === 'log' || baseCmd === 'ln' || baseCmd === 'sin' ||
+                     baseCmd === 'cos' || baseCmd === 'tan' || baseCmd === 'cot' ||
+                     baseCmd === 'sec' || baseCmd === 'csc' || baseCmd === 'arcsin' ||
+                     baseCmd === 'arccos' || baseCmd === 'arctan' || baseCmd === 'sinh' ||
+                     baseCmd === 'cosh' || baseCmd === 'tanh' || baseCmd === 'exp') {
+            result += spoken;
+            if (i < s.length && s.charAt(i) === '^') {
+              i++;
+              var powGrp = readLatexGroup(s, i);
+              i = powGrp.end;
+              result += '的' + latexToSpeakableSingle(powGrp.content) + '次方';
+            }
+          } else if (baseCmd === 'overline' || baseCmd === 'underline' ||
+                     baseCmd === 'hat' || baseCmd === 'tilde' || baseCmd === 'dot' ||
+                     baseCmd === 'ddot' || baseCmd === 'vec' || baseCmd === 'bar') {
+            if (i < s.length && s.charAt(i) === '{') {
+              var decGrp = readLatexGroup(s, i);
+              i = decGrp.end;
+              result += latexToSpeakableSingle(decGrp.content) + spoken;
+            } else {
+              result += spoken;
+            }
+          } else {
+            result += spoken;
+          }
+        } else {
+          result += cmdName;
+        }
+
+        while (i < s.length && (s.charAt(i) === ' ' || s.charAt(i) === '\t')) {
+          i++;
+        }
+      } else {
+        var escaped = {
+          '{': '{',
+          '}': '}',
+          '$': '美元',
+          '%': '百分之',
+          '&': '和',
+          '#': '井号',
+          '_': '下划',
+          '^': '上标',
+          '\\': '反斜杠',
+          '~': '波浪线',
+          ' ': ' ',
+        };
+        result += escaped[nextCh] || nextCh;
+        i++;
+      }
+    } else if (ch === '^') {
+      i++;
+      if (i < s.length) {
+        var supGroup = readLatexGroup(s, i);
+        i = supGroup.end;
+        var supContent = latexToSpeakableSingle(supGroup.content);
+        if (/^[0-9]+$/.test(supContent) && parseInt(supContent) <= 10) {
+          var powMap = { '1': '一次方', '2': '平方', '3': '立方', '4': '四次方',
+                         '5': '五次方', '6': '六次方', '7': '七次方', '8': '八次方',
+                         '9': '九次方', '10': '十次方' };
+          result += powMap[supContent] || (supContent + '次方');
+        } else if (supContent === '-1') {
+          result += '的负一次方';
+        } else {
+          result += '的' + supContent + '次方';
+        }
+      }
+    } else if (ch === '_') {
+      i++;
+      if (i < s.length) {
+        var subGroup = readLatexGroup(s, i);
+        i = subGroup.end;
+        var subContent = latexToSpeakableSingle(subGroup.content);
+        result += '下标' + subContent;
+      }
+    } else if (ch === '{') {
+      var grpResult = readLatexGroup(s, i);
+      i = grpResult.end;
+      result += latexToSpeakableSingle(grpResult.content);
+    } else if (ch === '(' || ch === '[' || ch === '|') {
+      result += ch;
+      i++;
+    } else if (ch === ')' || ch === ']' || ch === '|') {
+      result += ch;
+      i++;
+    } else if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+      if (result.length > 0 && !/\s$/.test(result)) {
+        result += ' ';
+      }
+      i++;
+    } else if (/[0-9a-zA-Z\u4e00-\u9fa5]/.test(ch)) {
+      result += ch;
+      i++;
+    } else if (ch === '+' || ch === '-' || ch === '=' || ch === ',' || ch === ';' || ch === ':') {
+      var opMap = { '+': '加', '-': '减', '=': '等于', ',': '逗号', ';': '分号', ':': '冒号' };
+      result += opMap[ch] || ch;
+      i++;
+    } else if (ch === '/') {
+      result += '除以';
+      i++;
+    } else if (ch === '<') {
+      if (i + 1 < s.length && s.charAt(i + 1) === '=') {
+        result += '小于等于';
+        i += 2;
+      } else {
+        result += '小于';
+        i++;
+      }
+    } else if (ch === '>') {
+      if (i + 1 < s.length && s.charAt(i + 1) === '=') {
+        result += '大于等于';
+        i += 2;
+      } else {
+        result += '大于';
+        i++;
+      }
+    } else {
+      result += ch;
+      i++;
+    }
+  }
+
+  return result;
+}
+
+export function latexToSpeakable(latex) {
+  if (!latex) return '公式';
+  try {
+    var result = latexToSpeakableSingle(latex);
+    if (!result || result.trim().length === 0) return '公式';
+    return result.trim().replace(/\s+/g, ' ');
+  } catch (e) {
+    return '公式';
+  }
+}
+
+// ================================================================
 // Markdown 文本处理（供 TTS 使用）
 // ================================================================
- 
+
 /** 去除 Markdown 格式，提取纯文本 */
 export function stripMarkdown(text) {
   if (!text) return "";
   var t = text;
- 
+
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, "$2");
   t = t.replace(/`([^`]+)`/g, "$1");
-  t = t.replace(/\$\$[\s\S]+?\$\$/g, "公式");
-  t = t.replace(/\$[^$]+\$/g, "公式");
+
+  t = t.replace(/\$\$([\s\S]+?)\$\$/g, function (m, content) {
+    return '，' + latexToSpeakable(content) + '，';
+  });
+  t = t.replace(/\$([^$]+?)\$/g, function (m, content) {
+    return latexToSpeakable(content);
+  });
+
   t = t.replace(/\*\*([^*]+)\*\*/g, "$1");
   t = t.replace(/__([^_]+)__/g, "$1");
   t = t.replace(/\*([^*]+)\*/g, "$1");
@@ -594,7 +995,7 @@ export function stripMarkdown(text) {
   t = t.replace(/[\u{2600}-\u{26FF}]/gu, "");
   t = t.replace(/[\u{2700}-\u{27BF}]/gu, "");
   t = t.replace(/\n{3,}/g, "\n\n").trim();
- 
+
   return t;
 }
  
