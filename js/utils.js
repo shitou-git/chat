@@ -203,6 +203,11 @@ export function renderContent(text) {
             throwOnError: false,
             displayMode: p.type === "block",
             output: "html",
+            strict: function (errorCode, errorContent, token) {
+              // 忽略 display mode 中的换行警告
+              if (errorCode === 'newLineInDisplayMode') return false;
+              return errorContent;
+            }
           });
           if (p.type === "block") {
             result += '<div class="katex-block">' + html + "</div>";
