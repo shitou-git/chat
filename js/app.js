@@ -394,6 +394,8 @@ function startNewSession() {
  
 var _authMode = 'login';
  
+var _userMenu = null;
+
 function setupAuth() {
   var userBtn = document.getElementById('authUserBtn');
   var overlay = document.getElementById('authOverlay');
@@ -403,18 +405,47 @@ function setupAuth() {
   var nicknameField = document.getElementById('authNicknameField');
   var title = document.getElementById('authTitle');
   var switchText = document.getElementById('authSwitchText');
- 
+
+  _userMenu = document.getElementById('userMenu');
+
   if (userBtn) {
     userBtn.addEventListener('click', function () {
       if (isLoggedIn()) {
-        if (confirm('确定要退出登录吗？退出后本地聊天记录将被清除。')) {
-          logout();
-        }
+        toggleUserMenu();
       } else {
         openAuthModal('login');
       }
     });
   }
+
+  // 生图按钮
+  var imageGenBtn = document.getElementById('userMenuImageGen');
+  if (imageGenBtn) {
+    imageGenBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      hideUserMenu();
+      window.open('https://shitou-git.github.io/Image/st', '_blank');
+    });
+  }
+
+  // 退出按钮
+  var logoutBtn = document.getElementById('userMenuLogout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      hideUserMenu();
+      if (confirm('确定要退出登录吗？退出后本地聊天记录将被清除。')) {
+        logout();
+      }
+    });
+  }
+
+  // 点击其他地方关闭菜单
+  document.addEventListener('click', function (e) {
+    if (_userMenu && !_userMenu.contains(e.target) && e.target !== userBtn) {
+      hideUserMenu();
+    }
+  });
  
   if (closeBtn) {
     closeBtn.addEventListener('click', closeAuthModal);
@@ -568,13 +599,23 @@ function handleAuthSubmit() {
 function updateAuthUI() {
   var userNameEl = document.getElementById('authUserName');
   if (!userNameEl) return;
- 
+
   var user = currentUser();
   if (user) {
     userNameEl.textContent = user.nickname || user.email;
   } else {
     userNameEl.textContent = '未登录';
   }
+}
+
+function toggleUserMenu() {
+  if (!_userMenu) return;
+  _userMenu.classList.toggle('show');
+}
+
+function hideUserMenu() {
+  if (!_userMenu) return;
+  _userMenu.classList.remove('show');
 }
  
 /** 退出登录后清理：清除本地聊天记录、重置界面 */
