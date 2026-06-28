@@ -442,8 +442,11 @@ function setupAuth() {
 
   // 点击其他地方关闭菜单
   document.addEventListener('click', function (e) {
-    if (_userMenu && !_userMenu.contains(e.target) && e.target !== userBtn) {
-      hideUserMenu();
+    if (_userMenu && !_userMenu.contains(e.target)) {
+      var userBtn = document.getElementById('authUserBtn');
+      if (!userBtn || !userBtn.contains(e.target)) {
+        hideUserMenu();
+      }
     }
   });
  
@@ -620,6 +623,8 @@ function hideUserMenu() {
  
 /** 退出登录后清理：清除本地聊天记录、重置界面 */
 function handleLogout() {
+  hideUserMenu();
+
   // 停止生成中内容
   if (state.abortController) {
     state.abortController.abort();

@@ -869,6 +869,7 @@ body.is-dark .followup-item:hover {
   margin-top: auto;
   padding: 12px;
   border-top: 1px solid var(--c-border);
+  position: relative;
 }
 .chat-sidebar-user-btn {
   width: 100%;
