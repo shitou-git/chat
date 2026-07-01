@@ -532,17 +532,8 @@ body {
 }
 
 /* ========== TTS 朗读高亮 ========== */
-.tts-sentence {
-  border-radius: 4px;
-  transition: background-color 0.1s linear;
-}
 .tts-sentence.tts-highlight {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(59, 130, 246, 0.18));
-  border-radius: 6px;
-  padding: 1px 2px;
-  margin: -1px -2px;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
+  background: rgba(139, 92, 246, 0.28);
 }
 .katex-block.tts-highlight {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(59, 130, 246, 0.12));
@@ -553,7 +544,7 @@ body {
   box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.4), inset 0 0 0 1px rgba(139, 92, 246, 0.2);
 }
 body.is-dark .tts-sentence.tts-highlight {
-  background: linear-gradient(135deg, rgba(167, 139, 250, 0.22), rgba(96, 165, 250, 0.22));
+  background: rgba(167, 139, 250, 0.32);
 }
 
 /* Markdown 表格 */

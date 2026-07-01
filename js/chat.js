@@ -4,14 +4,14 @@
  * 包含消息发送、流式渲染、API 调用等核心逻辑
  */
  
-import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=1.1.9';
+import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=1.1.10';
 import {
   state,
   addMessageData,
   chatData,
   currentSession,
   saveChatHistory
-} from './state.js?v=1.1.9';
+} from './state.js?v=1.1.10';
 import {
   renderContent,
   renderContentLight,
@@ -21,7 +21,7 @@ import {
   extractFollowUpQuestions,
   generateFallbackQuestions,
   escapeHtml
-} from './utils.js?v=1.1.9';
+} from './utils.js?v=1.1.10';
 import {
   renderCurrentSession,
   renderEmptyState,
@@ -30,13 +30,13 @@ import {
   createMessageElement,
   renderFollowUpButtons,
   domRefs as renderRefs
-} from './render.js?v=1.1.9';
+} from './render.js?v=1.1.10';
 import {
   stopAllSpeak,
   updateHeaderPlayBtn,
   attachSpeakButton as attachSpeakButtonToBubble
-} from './tts.js?v=1.1.9';
-import { authToken, isLoggedIn } from './auth.js?v=1.1.9';
+} from './tts.js?v=1.1.10';
+import { authToken, isLoggedIn } from './auth.js?v=1.1.10';
  
 // ================================================================
 // 发送/停止

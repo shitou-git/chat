@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=1.1.9';
+import { IDENTITY_REPLY } from './config.js?v=1.1.10';
  
 // ================================================================
 // HTML 转义
