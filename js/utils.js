@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=1.1.6';
+import { IDENTITY_REPLY } from './config.js?v=1.1.7';
  
 // ================================================================
 // HTML 转义
@@ -269,10 +269,11 @@ export function renderContentLight(text) {
   return result;
 }
  
-/** 将纯文本按句子切分，返回句子数组 */
+/** 将纯文本按句子切分，返回句子数组
+ *  统一使用固定结束符 。？！ 进行切分，与 wrapTtsSentences 保持一致 */
 export function splitIntoSentences(text) {
   if (!text) return [];
-  var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';'];
+  var sentenceEndings = ['。', '！', '？', '!', '?'];
 
   function isEnding(ch) {
     for (var j = 0; j < sentenceEndings.length; j++) {
@@ -304,83 +305,154 @@ export function splitIntoSentences(text) {
   return sentences;
 }
 
-/** 将 HTML 字符串中的纯文本按句子切分，用 span.tts-sentence 包裹 */
+/** 将 HTML 字符串中的纯文本按句子切分，用 span.tts-sentence 包裹
+ *  改进：跨 HTML 标签累积文本，只在结束符（。？！）处切分，
+ *  避免列表项/换行等被独立分段，与 TTS 文本分段保持一致。
+ *  使用"平衡标签"算法保证 span 不破坏 HTML 结构。 */
 export function wrapTtsSentences(html) {
   if (!html) return '';
 
-  var result = '';
-  var i = 0;
-  var len = html.length;
-  var currentText = '';
-  var sentenceIdx = 0;
-  var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';'];
-  var strongEndings = ['。', '！', '？', '!', '?'];
+  var sentenceEndings = ['。', '！', '？', '!', '?'];
+  var endingsSet = {};
+  for (var e = 0; e < sentenceEndings.length; e++) endingsSet[sentenceEndings[e]] = true;
 
-  function isEnding(ch) {
-    for (var j = 0; j < sentenceEndings.length; j++) {
-      if (ch === sentenceEndings[j]) return true;
+  var VOID_TAGS = { br:1, img:1, hr:1, input:1, meta:1, link:1, area:1, base:1, col:1, embed:1, source:1, track:1, wbr:1 };
+  var BLOCK_TAGS = { p:1, div:1, h1:1, h2:1, h3:1, h4:1, h5:1, h6:1, ul:1, ol:1, li:1, table:1, thead:1, tbody:1, tr:1, th:1, td:1, pre:1, blockquote:1, section:1, article:1, header:1, footer:1, main:1, nav:1, aside:1, figure:1, figcaption:1, details:1, summary:1 };
+
+  function getTagName(tag) {
+    var m = tag.match(/^<\/?(\w+)/);
+    return m ? m[1].toLowerCase() : '';
+  }
+
+  function hasVisibleText(seg) {
+    for (var j = 0; j < seg.length; j++) {
+      if (seg[j] === '<') {
+        var end = seg.indexOf('>', j);
+        if (end === -1) break;
+        j = end;
+      } else if (!/\s/.test(seg[j])) {
+        return true;
+      }
     }
     return false;
   }
 
-  function wrap(text, startIdx) {
-    if (!text) return { html: '', count: 0 };
-    var trimmed = text.trim();
-    if (!trimmed) return { html: text, count: 0 };
+  var result = '';
+  var i = 0;
+  var len = html.length;
+  var sentenceStart = 0;
+  var sentenceIdx = 0;
+  var preClosed = []; // balanceTags 预闭合的标签（原 HTML 中对应的结束标签需跳过）
 
-    var sentences = [];
-    var cur = '';
-    var k = 0;
-    while (k < text.length) {
-      var ch = text[k];
-      cur += ch;
+  function flush(endPos) {
+    if (endPos <= sentenceStart) return;
+    var seg = html.substring(sentenceStart, endPos);
+    if (!hasVisibleText(seg)) {
+      result += seg;
+      sentenceStart = endPos;
+      return;
+    }
 
-      if (isEnding(ch)) {
-        var next = text[k + 1] || '';
-        if (next === '"' || next === '"' || next === "'" || next === "'" ||
-            next === '）' || next === ')' || next === '」' || next === '』') {
-          cur += next;
-          k++;
+    // 平衡标签：分析 seg 内标签开闭情况
+    var openStack = [];
+    var unmatchedCloses = [];
+    var j = 0;
+    while (j < seg.length) {
+      if (seg[j] === '<') {
+        var tagEnd = seg.indexOf('>', j);
+        if (tagEnd === -1) break;
+        var tagStr = seg.substring(j, tagEnd + 1);
+        var tName = getTagName(tagStr);
+        var isEnd = tagStr[1] === '/';
+        var isSelf = tagStr[tagStr.length - 2] === '/' || VOID_TAGS[tName];
+        if (isEnd) {
+          var found = -1;
+          for (var k = openStack.length - 1; k >= 0; k--) {
+            if (openStack[k] === tName) { found = k; break; }
+          }
+          if (found >= 0) {
+            openStack.splice(found);
+          } else {
+            unmatchedCloses.push(tName);
+          }
+        } else if (!isSelf) {
+          openStack.push(tName);
         }
-        sentences.push(cur);
-        cur = '';
+        j = tagEnd + 1;
+      } else {
+        j++;
       }
-      k++;
     }
-    if (cur) sentences.push(cur);
 
-    var out = '';
-    for (var s = 0; s < sentences.length; s++) {
-      out += '<span class="tts-sentence" data-tts-idx="' + (startIdx + s) + '">' + sentences[s] + '</span>';
+    // 前缀：补上未匹配的结束标签对应的开始标签
+    var prefix = '';
+    for (var k = 0; k < unmatchedCloses.length; k++) {
+      prefix += '<' + unmatchedCloses[k] + '>';
     }
-    return { html: out, count: sentences.length };
+    // 后缀：补上未闭合的开始标签对应的结束标签
+    var suffix = '';
+    for (var k = openStack.length - 1; k >= 0; k--) {
+      suffix += '</' + openStack[k] + '>';
+      preClosed.push(openStack[k]);
+    }
+
+    result += '<span class="tts-sentence" data-tts-idx="' + sentenceIdx + '">' + prefix + seg + suffix + '</span>';
+    sentenceIdx++;
+    sentenceStart = endPos;
   }
 
   while (i < len) {
     if (html[i] === '<') {
-      if (currentText) {
-        var w = wrap(currentText, sentenceIdx);
-        result += w.html;
-        sentenceIdx += w.count;
-        currentText = '';
-      }
       var endIdx = html.indexOf('>', i);
-      if (endIdx === -1) {
-        result += html.substring(i);
-        break;
+      if (endIdx === -1) { i = len; break; }
+      var tag = html.substring(i, endIdx + 1);
+      var tagName = getTagName(tag);
+      var isEndTag = tag[1] === '/';
+      var isBlock = BLOCK_TAGS[tagName];
+
+      if (isEndTag) {
+        // 检查是否是预闭合的标签（balanceTags 已添加过结束标签）
+        var preIdx = -1;
+        for (var k = preClosed.length - 1; k >= 0; k--) {
+          if (preClosed[k] === tagName) { preIdx = k; break; }
+        }
+        if (preIdx >= 0) {
+          preClosed.splice(preIdx, 1);
+          flush(i);
+          sentenceStart = endIdx + 1;
+          i = endIdx + 1;
+          continue;
+        }
       }
-      result += html.substring(i, endIdx + 1);
+
+      if (isBlock) {
+        // 块级元素边界：先 flush，再输出标签本身（不被 span 包裹）
+        flush(i);
+        result += tag;
+        sentenceStart = endIdx + 1;
+      }
+      // 行内元素：不 flush，继续累积（标签会被包含在后续 seg 中，由 balanceTags 修复）
       i = endIdx + 1;
     } else {
-      currentText += html[i];
-      i++;
+      var ch = html[i];
+      if (endingsSet[ch]) {
+        var endPos = i + 1;
+        var nextCh = html[endPos];
+        if (nextCh && nextCh !== '<' &&
+            (nextCh === '"' || nextCh === '"' || nextCh === "'" || nextCh === "'" ||
+             nextCh === '）' || nextCh === ')' || nextCh === '」' || nextCh === '』')) {
+          endPos++;
+        }
+        flush(endPos);
+        i = endPos;
+      } else {
+        i++;
+      }
     }
   }
 
-  if (currentText) {
-    var w2 = wrap(currentText, sentenceIdx);
-    result += w2.html;
-    sentenceIdx += w2.count;
+  if (sentenceStart < len) {
+    flush(len);
   }
 
   return result;
