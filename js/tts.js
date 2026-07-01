@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.1.8';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.1.8';
+import { CONFIG } from './config.js?v=1.1.9';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.1.9';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -16,8 +16,28 @@ var _lastHighlightIdx = -1;
 // （旧方案按句子数均分进度，长句读完前高亮就跳走，短句读完后高亮停留）
 var _charInfoCache = null;
 
-/** 计算并缓存每个 TTS 句子的字数累计信息
- *  返回 { cumulative: [0, len1, len1+len2, ...], total: 总字数 }
+/** 统计有效发音字符数（中文、英文、数字），过滤标点、符号、空白
+ *  这些字符在朗读时基本不占时间，计入字数会导致加权比例偏差 */
+function countPronouncedChars(str) {
+  if (!str) return 0;
+  var count = 0;
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    if (c >= 0x4E00 && c <= 0x9FFF) { count++; continue; }          // 中文
+    if (c >= 0x3400 && c <= 0x4DBF) { count++; continue; }          // 中文扩展A
+    if (c >= 65 && c <= 90) { count++; continue; }                   // 大写英文
+    if (c >= 97 && c <= 122) { count++; continue; }                  // 小写英文
+    if (c >= 48 && c <= 57) { count++; continue; }                   // 数字
+    if (c >= 0xFF10 && c <= 0xFF19) { count++; continue; }           // 全角数字
+    if (c >= 0xFF21 && c <= 0xFF3A) { count++; continue; }           // 全角大写英文
+    if (c >= 0xFF41 && c <= 0xFF5A) { count++; continue; }           // 全角小写英文
+    // 其他（标点、符号、空白、特殊字符等）不计入
+  }
+  return count;
+}
+
+/** 计算并缓存每个 TTS 句子的有效字数累计信息
+ *  返回 { cumulative: [0, len1, len1+len2, ...], total: 总有效字数 }
  *  缓存键为当前 bubble 引用 + 句子数量，bubble 不变时复用，避免每帧重复遍历 DOM */
 function getCharInfo(sentences) {
   if (_charInfoCache &&
@@ -28,8 +48,8 @@ function getCharInfo(sentences) {
   var cumulative = [0];
   var total = 0;
   for (var i = 0; i < sentences.length; i++) {
-    var len = (sentences[i].textContent || '').length;
-    if (len < 1) len = 1; // 空句子至少占 1，避免除零与区间塌陷
+    var len = countPronouncedChars(sentences[i].textContent || '');
+    if (len < 1) len = 1;
     total += len;
     cumulative.push(total);
   }
@@ -895,11 +915,12 @@ export function speakViaWebSpeech(plainText, btnEl) {
   var wsLastIdx = -1;
   var wsEnded = false;
 
-  // 预计算每句字数累计，用于按字数加权定位高亮（与 worker 路径保持一致）
+  // 预计算每句有效发音字数累计，用于按字数加权定位高亮（与 worker 路径保持一致）
+  // 只统计中文/英文/数字，过滤标点符号，避免大量符号的句子加权虚胖
   var wsCumulative = [0];
   var wsTotalChars = 0;
   for (var wi = 0; wi < wsSentences.length; wi++) {
-    var wlen = (wsSentences[wi].textContent || '').length;
+    var wlen = countPronouncedChars(wsSentences[wi].textContent || '');
     if (wlen < 1) wlen = 1;
     wsTotalChars += wlen;
     wsCumulative.push(wsTotalChars);
