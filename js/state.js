@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=1.2.4';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.2.4';
+import { CONFIG } from './config.js?v=1.2.5';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.2.5';
  
 // ================================================================
 // 状态对象（可读写）
@@ -199,7 +199,8 @@ function hasEmptySession() {
 }
 
 /** 确保存在一个空话题（没有则创建）
- *  关键：空话题放在列表最后面，避免被默认选中（用户更希望打开有内容的会话） */
+ *  关键：空话题放在列表最前面，首次打开时（currentSessionId 为 null）
+ *  默认选中 sessions[0] 即空话题；已选中其他话题时不受影响（savedCurrentId 恢复） */
 export function ensureEmptySession() {
   if (!hasEmptySession()) {
     // 保存当前的会话ID，创建空话题后再恢复
@@ -211,10 +212,10 @@ export function ensureEmptySession() {
       createdAt: Date.now(),
       messages: [],
     };
-    // 放在最后面，而不是最前面（避免被默认选中）
-    state.sessions.push(s);
+    // 放在最前面，首次打开时默认选中空话题
+    state.sessions.unshift(s);
 
-    // 恢复当前的会话选择
+    // 恢复当前的会话选择（若已有选中话题则不变；首次打开为 null 时由 init 选中 sessions[0]）
     state.currentSessionId = savedCurrentId;
     saveSessions();
   }
@@ -695,7 +696,7 @@ export async function loadAllFromServer() {
       }
       if (existingEmpty) {
         console.log('[灵知] loadAllFromServer - 复用本地空话题 ID:', existingEmpty.id);
-        loadedSessions.push({
+        loadedSessions.unshift({
           id: existingEmpty.id,
           serverSessionId: null,
           title: existingEmpty.title || '新话题',
@@ -704,7 +705,7 @@ export async function loadAllFromServer() {
         });
       } else {
         console.log('[灵知] loadAllFromServer - 无空话题，创建一个');
-        loadedSessions.push({
+        loadedSessions.unshift({
           id: Date.now() + '_local',
           serverSessionId: null,
           title: '新话题',
