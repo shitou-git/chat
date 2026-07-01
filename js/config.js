@@ -36,8 +36,10 @@ export const CONFIG = {
   USER_KEY: "lingzhi_user",
   GUEST_MSG_KEY: "lingzhi_guest_msg_count",
 
-  /** 模型配置 */
+  /** 模型配置（API 调用使用） */
   MODEL: "agnes-2.0-flash",
+  /** 模型显示名称（关于弹窗展示） */
+  MODEL_DISPLAY: "Powered by Sapiens AI",
   MAX_TOKENS: 2048,
   TEMPERATURE: 0.3,
 

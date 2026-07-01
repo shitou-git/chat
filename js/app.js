@@ -465,7 +465,7 @@ function setupAuth() {
     if (titleEl && CONFIG.APP_NAME) titleEl.textContent = CONFIG.APP_NAME;
     if (versionEl && CONFIG.APP_VERSION) versionEl.textContent = CONFIG.APP_VERSION;
     if (descEl && CONFIG.APP_DESCRIPTION) descEl.textContent = CONFIG.APP_DESCRIPTION;
-    if (modelEl && CONFIG.MODEL) modelEl.textContent = CONFIG.MODEL;
+    if (modelEl && CONFIG.MODEL_DISPLAY) modelEl.textContent = CONFIG.MODEL_DISPLAY;
 
     aboutOverlay.classList.add('show');
   }
