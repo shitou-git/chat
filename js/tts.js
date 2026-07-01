@@ -9,6 +9,8 @@ import { stripMarkdown } from './utils.js?v=58';
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
 var _currentBubbleEl = null;
+var _highlightRAF = null;
+var _lastHighlightIdx = -1;
 
 function getMessageBubble(btnEl) {
   if (!btnEl) return null;
@@ -26,6 +28,11 @@ function getTtsSentences(bubbleEl) {
 }
 
 function clearTtsHighlight() {
+  if (_highlightRAF) {
+    cancelAnimationFrame(_highlightRAF);
+    _highlightRAF = null;
+  }
+  _lastHighlightIdx = -1;
   if (!_currentBubbleEl) return;
   var sentences = getTtsSentences(_currentBubbleEl);
   for (var i = 0; i < sentences.length; i++) {
@@ -34,32 +41,48 @@ function clearTtsHighlight() {
   _currentBubbleEl = null;
 }
 
+function applyHighlight(sentences, targetIdx) {
+  if (targetIdx === _lastHighlightIdx) return;
+  _lastHighlightIdx = targetIdx;
+  for (var i = 0; i < sentences.length; i++) {
+    sentences[i].classList.remove('tts-highlight');
+  }
+  if (targetIdx >= 0 && targetIdx < sentences.length) {
+    var target = sentences[targetIdx];
+    target.classList.add('tts-highlight');
+    try {
+      var rect = target.getBoundingClientRect();
+      var viewTop = window.innerHeight * 0.25;
+      var viewBottom = window.innerHeight * 0.75;
+      if (rect.top < viewTop || rect.bottom > viewBottom) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } catch (e) {}
+  }
+}
+
+function getAudioDuration(blob) {
+  return new Promise(function (resolve) {
+    var audio = new Audio();
+    audio.onloadedmetadata = function () {
+      resolve(audio.duration || 0);
+    };
+    audio.onerror = function () {
+      resolve(0);
+    };
+    audio.src = URL.createObjectURL(blob);
+  });
+}
+
 function highlightTtsSentence(bubbleEl, playIndex, totalSegments) {
   if (!bubbleEl) return;
   var sentences = getTtsSentences(bubbleEl);
   if (sentences.length === 0) return;
-
-  for (var i = 0; i < sentences.length; i++) {
-    sentences[i].classList.remove('tts-highlight');
-  }
-
   var total = totalSegments || 1;
-  var ratio = playIndex / total;
-  var domIndex = Math.floor(ratio * sentences.length);
+  var domIndex = Math.floor((playIndex / total) * sentences.length);
   if (domIndex >= sentences.length) domIndex = sentences.length - 1;
   if (domIndex < 0) domIndex = 0;
-
-  var target = sentences[domIndex];
-  target.classList.add('tts-highlight');
-
-  try {
-    var rect = target.getBoundingClientRect();
-    var viewTop = window.innerHeight * 0.25;
-    var viewBottom = window.innerHeight * 0.75;
-    if (rect.top < viewTop || rect.bottom > viewBottom) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  } catch (e) {}
+  applyHighlight(sentences, domIndex);
 }
  
 // ================================================================
@@ -163,7 +186,11 @@ export function initStreamTTS() {
   _streamTTS = {
     segments: [],
     synthesizedBlobs: [],
+    segmentDurations: [],
+    segmentTimeRanges: [],
+    totalDuration: 0,
     currentPlayIndex: 0,
+    currentSegmentStartTime: 0,
     isPlaying: false,
     isPaused: false,
     isStopped: false,
@@ -172,6 +199,7 @@ export function initStreamTTS() {
     allReceived: false,
     audioEl: null,
     abortControllers: [],
+    pendingDurationChecks: 0,
   };
 }
  
@@ -179,13 +207,18 @@ export function resetStreamTTS() {
   if (!_streamTTS) return;
   _streamTTS.segments = [];
   _streamTTS.synthesizedBlobs = [];
+  _streamTTS.segmentDurations = [];
+  _streamTTS.segmentTimeRanges = [];
+  _streamTTS.totalDuration = 0;
   _streamTTS.currentPlayIndex = 0;
+  _streamTTS.currentSegmentStartTime = 0;
   _streamTTS.isPlaying = false;
   _streamTTS.isPaused = false;
   _streamTTS.isStopped = false;
   _streamTTS.btnEl = null;
   _streamTTS.totalSegments = 0;
   _streamTTS.allReceived = false;
+  _streamTTS.pendingDurationChecks = 0;
   if (_streamTTS.audioEl) {
     try { _streamTTS.audioEl.pause(); _streamTTS.audioEl.src = ''; } catch (e) {}
     _streamTTS.audioEl = null;
@@ -247,6 +280,10 @@ export function pauseStreamTTS() {
   if (_streamTTS) {
     _streamTTS.isPaused = true;
     _streamTTS.isPlaying = false;
+    if (_highlightRAF) {
+      cancelAnimationFrame(_highlightRAF);
+      _highlightRAF = null;
+    }
     updateBubblePlayBtn(_streamTTS.btnEl, 'paused');
     updateHeaderPlayBtn();
   }
@@ -259,6 +296,8 @@ export function resumeStreamTTS() {
     if (_streamTTS.audioEl) {
       _streamTTS.audioEl.play().catch(function (e) {
         console.error('[StreamTTS] 恢复播放失败：', e);
+      }).then(function () {
+        startHighlightSyncLoop();
       });
     }
     updateBubblePlayBtn(_streamTTS.btnEl, 'playing');
@@ -353,6 +392,69 @@ export function splitTextIntoSegments(text) {
 // ================================================================
 // 合成与播放
 // ================================================================
+
+function updateSegmentTimeRanges() {
+  var ranges = [];
+  var acc = 0;
+  for (var i = 0; i < _streamTTS.segmentDurations.length; i++) {
+    var dur = _streamTTS.segmentDurations[i] || 0;
+    ranges.push({ start: acc, end: acc + dur, duration: dur });
+    acc += dur;
+  }
+  _streamTTS.segmentTimeRanges = ranges;
+  _streamTTS.totalDuration = acc;
+}
+
+function startHighlightSyncLoop() {
+  if (_highlightRAF) {
+    cancelAnimationFrame(_highlightRAF);
+  }
+
+  function syncHighlight() {
+    if (!_streamTTS || _streamTTS.isStopped || _streamTTS.isPaused) {
+      _highlightRAF = null;
+      return;
+    }
+
+    var audioEl = _streamTTS.audioEl;
+    if (!audioEl || audioEl.paused) {
+      _highlightRAF = requestAnimationFrame(syncHighlight);
+      return;
+    }
+
+    var sentences = getTtsSentences(_currentBubbleEl);
+    if (sentences.length === 0) {
+      _highlightRAF = requestAnimationFrame(syncHighlight);
+      return;
+    }
+
+    var currentTime = audioEl.currentTime || 0;
+    var currentIdx = _streamTTS.currentPlayIndex;
+    var ranges = _streamTTS.segmentTimeRanges;
+
+    if (ranges.length > 0 && currentIdx < ranges.length) {
+      var segStart = ranges[currentIdx] ? ranges[currentIdx].start : 0;
+      var segDuration = ranges[currentIdx] ? ranges[currentIdx].duration : 1;
+      var segProgress = (currentTime - segStart) / segDuration;
+      segProgress = Math.max(0, Math.min(1, segProgress));
+      var totalRatio = (currentIdx + segProgress) / _streamTTS.totalSegments;
+      var domIdx = Math.floor(totalRatio * sentences.length);
+      if (domIdx >= sentences.length) domIdx = sentences.length - 1;
+      if (domIdx < 0) domIdx = 0;
+      applyHighlight(sentences, domIdx);
+    } else {
+      var ratio = currentIdx / _streamTTS.totalSegments;
+      var domIdx = Math.floor(ratio * sentences.length);
+      if (domIdx >= sentences.length) domIdx = sentences.length - 1;
+      if (domIdx < 0) domIdx = 0;
+      applyHighlight(sentences, domIdx);
+    }
+
+    _highlightRAF = requestAnimationFrame(syncHighlight);
+  }
+
+  _highlightRAF = requestAnimationFrame(syncHighlight);
+}
  
 function synthesizeSegmentWorker(text, index) {
   return new Promise(function (resolve, reject) {
@@ -417,21 +519,26 @@ function synthesizeSegmentWorker(text, index) {
 function playNextSegment() {
   if (_streamTTS.isStopped) return;
   if (_streamTTS.isPaused) return;
- 
+
   var idx = _streamTTS.currentPlayIndex;
   var blob = _streamTTS.synthesizedBlobs[idx];
- 
+
   if (!blob) {
     if (_streamTTS.allReceived && idx >= _streamTTS.totalSegments) {
       updateBubblePlayBtn(_streamTTS.btnEl, 'stopped');
       _currentSpeakBtn = null;
       hideToast();
       _streamTTS.isPlaying = false;
+      if (_highlightRAF) {
+        cancelAnimationFrame(_highlightRAF);
+        _highlightRAF = null;
+      }
+      clearTtsHighlight();
       updateHeaderPlayBtn();
     }
     return;
   }
- 
+
   _streamTTS.isPlaying = true;
   updateBubblePlayBtn(_streamTTS.btnEl, 'playing');
   updateHeaderPlayBtn();
@@ -439,7 +546,13 @@ function playNextSegment() {
   if (!_currentBubbleEl && _streamTTS.btnEl) {
     _currentBubbleEl = getMessageBubble(_streamTTS.btnEl);
   }
-  highlightTtsSentence(_currentBubbleEl, idx, _streamTTS.totalSegments);
+
+  var ranges = _streamTTS.segmentTimeRanges;
+  if (ranges.length > 0 && idx < ranges.length) {
+    _streamTTS.currentSegmentStartTime = ranges[idx].start || 0;
+  } else {
+    _streamTTS.currentSegmentStartTime = 0;
+  }
 
   var url = URL.createObjectURL(blob);
   if (!_streamTTS.audioEl) {
@@ -451,13 +564,18 @@ function playNextSegment() {
     });
     _streamTTS.audioEl.addEventListener('error', function () {
       console.error('[StreamTTS] 播放失败');
+      URL.revokeObjectURL(url);
       _streamTTS.currentPlayIndex++;
       playNextSegment();
+    });
+    _streamTTS.audioEl.addEventListener('play', function () {
+      startHighlightSyncLoop();
     });
   }
   _streamTTS.audioEl.src = url;
   _streamTTS.audioEl.play().catch(function (e) {
     console.error('[StreamTTS] 播放错误：', e);
+    URL.revokeObjectURL(url);
     _streamTTS.currentPlayIndex++;
     playNextSegment();
   });
@@ -493,6 +611,14 @@ function startSynthesisQueue() {
     synthesizeSegmentWorker(seg, idx).then(function (result) {
       if (_streamTTS.isStopped) return;
       _streamTTS.synthesizedBlobs[result.index] = result.blob;
+
+      getAudioDuration(result.blob).then(function (dur) {
+        if (_streamTTS.isStopped) return;
+        _streamTTS.segmentDurations[result.index] = dur || 0;
+        updateSegmentTimeRanges();
+        console.log('[StreamTTS] 第' + result.index + '段时长: ' + (dur || 0).toFixed(2) + 's');
+      });
+
       console.log('[StreamTTS] 第' + result.index + '段就绪');
  
       var curIdx = _streamTTS.currentPlayIndex;
@@ -657,12 +783,54 @@ export function speakViaWebSpeech(plainText, btnEl) {
   if (_zhVoice) utter.voice = _zhVoice;
 
   var wsBubble = getMessageBubble(btnEl);
-  var wsTotalChars = trimmed.length;
   var wsSentences = wsBubble ? getTtsSentences(wsBubble) : [];
+  var wsStartTime = 0;
+  var wsEstimatedDuration = trimmed.length * 0.12;
+  var wsRAF = null;
+  var wsLastIdx = -1;
+  var wsEnded = false;
+
+  function wsClearHighlight() {
+    if (wsRAF) {
+      cancelAnimationFrame(wsRAF);
+      wsRAF = null;
+    }
+    for (var i = 0; i < wsSentences.length; i++) {
+      wsSentences[i].classList.remove('tts-highlight');
+    }
+  }
+
+  function wsSyncLoop() {
+    if (wsEnded || !synth.speaking) {
+      wsRAF = null;
+      return;
+    }
+    if (synth.paused) {
+      wsRAF = requestAnimationFrame(wsSyncLoop);
+      return;
+    }
+    var elapsed = (Date.now() - wsStartTime) / 1000;
+    var ratio = elapsed / wsEstimatedDuration;
+    ratio = Math.max(0, Math.min(1, ratio));
+    var domIdx = Math.floor(ratio * wsSentences.length);
+    if (domIdx >= wsSentences.length) domIdx = wsSentences.length - 1;
+    if (domIdx !== wsLastIdx) {
+      wsLastIdx = domIdx;
+      for (var i = 0; i < wsSentences.length; i++) {
+        wsSentences[i].classList.remove('tts-highlight');
+      }
+      if (domIdx >= 0 && domIdx < wsSentences.length) {
+        wsSentences[domIdx].classList.add('tts-highlight');
+      }
+    }
+    wsRAF = requestAnimationFrame(wsSyncLoop);
+  }
 
   var started = false;
   var startTimeout = setTimeout(function () {
     if (!started) {
+      wsEnded = true;
+      wsClearHighlight();
       try { synth.cancel(); } catch (e) {}
       if (btnEl) btnEl.classList.remove("is-speaking");
       if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
@@ -679,32 +847,42 @@ export function speakViaWebSpeech(plainText, btnEl) {
     started = true;
     _ttsVerified = true;
     clearTimeout(startTimeout);
+    wsStartTime = Date.now();
+    wsEnded = false;
     _currentBubbleEl = wsBubble;
-    highlightTtsSentence(wsBubble, 0, wsTotalChars || 1);
+    if (wsSentences.length > 0) {
+      wsSentences[0].classList.add('tts-highlight');
+      wsLastIdx = 0;
+      wsRAF = requestAnimationFrame(wsSyncLoop);
+    }
   };
   utter.onboundary = function (e) {
-    if (!wsBubble || wsSentences.length === 0) return;
+    if (wsEnded || !wsBubble || wsSentences.length === 0) return;
     var charIndex = e.charIndex || 0;
-    var ratio = charIndex / wsTotalChars;
+    var totalChars = trimmed.length || 1;
+    var ratio = charIndex / totalChars;
     var domIdx = Math.floor(ratio * wsSentences.length);
     if (domIdx >= wsSentences.length) domIdx = wsSentences.length - 1;
     if (domIdx < 0) domIdx = 0;
+    wsLastIdx = domIdx;
     for (var i = 0; i < wsSentences.length; i++) {
       wsSentences[i].classList.remove('tts-highlight');
     }
     wsSentences[domIdx].classList.add('tts-highlight');
   };
   utter.onend = function () {
+    wsEnded = true;
     clearTimeout(startTimeout);
+    wsClearHighlight();
     if (btnEl) btnEl.classList.remove("is-speaking");
     if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-    clearTtsHighlight();
   };
   utter.onerror = function () {
+    wsEnded = true;
     clearTimeout(startTimeout);
+    wsClearHighlight();
     if (btnEl) btnEl.classList.remove("is-speaking");
     if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-    clearTtsHighlight();
     if (!started) {
       _ttsBroken = true;
       showTTSUnavailable();
@@ -715,7 +893,9 @@ export function speakViaWebSpeech(plainText, btnEl) {
     synth.speak(utter);
     if (synth.paused) synth.resume();
   } catch (e) {
+    wsEnded = true;
     clearTimeout(startTimeout);
+    wsClearHighlight();
     if (btnEl) btnEl.classList.remove("is-speaking");
     _ttsBroken = true;
     showTTSUnavailable();
