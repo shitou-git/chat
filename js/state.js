@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=1.2.3';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.2.3';
+import { CONFIG } from './config.js?v=1.2.4';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.2.4';
  
 // ================================================================
 // 状态对象（可读写）
@@ -750,16 +750,20 @@ async function syncDeleteSessionByServerId(serverSessionId) {
   }
 }
  
-/** 手动刷新从服务端加载数据（用于后端删除后前端同步） */
+/** 静默刷新从服务端加载数据
+ *  - 用于页面打开/切回前台/手动刷新场景
+ *  - 加载后保持当前选中的会话不变（只要该会话还在列表中）
+ *  - 不影响用户正在阅读的内容 */
 export async function refreshFromServer() {
-  console.log('[灵知] refreshFromServer - 手动刷新数据');
-  // 保存当前会话ID，刷新后尝试恢复
+  console.log('[灵知] refreshFromServer - 静默刷新数据');
+  // 保存当前会话ID，刷新后强制恢复
   var currentId = state.currentSessionId;
   // 直接调用 loadAllFromServer，它会以服务端为准重新加载
   await loadAllFromServer();
-  // 如果之前的会话还在，切换回去
+  // 强制恢复之前的会话选择（只要该会话还在列表中）
   if (currentId && state.sessions.some(function(s) { return s.id === currentId; })) {
     state.currentSessionId = currentId;
+    console.log('[灵知] refreshFromServer - 恢复当前会话:', currentId);
   }
   // 通知渲染更新
   saveSessions();
