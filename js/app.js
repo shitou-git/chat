@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=1.1.10';
+import { CONFIG } from './config.js?v=1.1.11';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=1.1.10';
+} from './state.js?v=1.1.11';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=1.1.10';
+} from './render.js?v=1.1.11';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=1.1.10';
+} from './chat.js?v=1.1.11';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=1.1.10';
+} from './tts.js?v=1.1.11';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=1.1.10';
+} from './auth.js?v=1.1.11';
  
 // ================================================================
 // 事件绑定
@@ -212,24 +212,35 @@ function setupMultiTabSync() {
     }
   });
  
-  // 2) 监听 visibilitychange 事件：页面从后台切换回前台时刷新服务端数据
-  //    节流：至少间隔30秒才刷新一次，避免频繁抖动
+  // 2) 监听 visibilitychange 事件：页面从后台切换回前台时静默刷新服务端数据
+  //    - 只更新侧栏列表，不重新渲染当前会话，避免打断用户阅读
+  //    - 节流：至少间隔 SERVER_REFRESH_INTERVAL 才刷新一次
   document.addEventListener('visibilitychange', function () {
   
     if (document.hidden) return;
     if (!isLoggedIn()) return;
- 
+
     var now = Date.now();
     if (now - _lastServerRefresh < SERVER_REFRESH_INTERVAL) {
-      console.log('[灵知] 页面重新可见，但距离上次刷新不足2分钟，跳过');
       return;
     }
-    console.log('[灵知] 页面重新可见，从服务端刷新数据');
     _lastServerRefresh = now;
+
+    // 保存当前会话的消息数，用于判断是否需要更新当前视图
+    var curSession = currentSession();
+    var prevMsgCount = curSession && curSession.messages ? curSession.messages.length : 0;
+    var prevSessionId = state.currentSessionId;
+
     setTimeout(function () {
       refreshFromServer().then(function () {
+        // 只更新侧栏列表，不重新渲染当前会话（避免打断用户阅读）
         renderSidebarList();
-        renderCurrentSession();
+        // 只有当当前会话的消息数变化了（如新消息到达），才更新当前视图
+        var newCur = currentSession();
+        var newMsgCount = newCur && newCur.messages ? newCur.messages.length : 0;
+        if (prevSessionId === state.currentSessionId && newMsgCount !== prevMsgCount) {
+          renderCurrentSession();
+        }
       });
     }, 500);
   });
@@ -712,14 +723,24 @@ function handleLogout() {
 function handleLogin() {
   console.log('[灵知] handleLogin - 开始加载服务端数据...');
   console.log('[灵知] handleLogin - 加载前本地会话数:', state.sessions.length);
+  // 记录加载前的当前会话，用于判断是否需要重新渲染
+  var prevSessionId = state.currentSessionId;
+  var prevSession = currentSession();
+  var prevMsgCount = prevSession && prevSession.messages ? prevSession.messages.length : 0;
+
   loadAllFromServer().then(function () {
     console.log('[灵知] handleLogin - 服务端数据加载完成，当前会话数:', state.sessions.length);
     // 加载完成后重新渲染
     if (state.sessions.length === 0) {
       console.log('[灵知] handleLogin - 无会话，创建新会话');
       createSession();
+      renderCurrentSession();
+    } else if (state.currentSessionId !== prevSessionId ||
+               (currentSession() && currentSession().messages &&
+                currentSession().messages.length !== prevMsgCount)) {
+      // 会话变了或消息数变了才重渲染
+      renderCurrentSession();
     }
-    renderCurrentSession();
     renderSidebarList();
     console.log('[灵知] handleLogin - 界面渲染完成');
   }).catch(function(err) {
@@ -727,8 +748,8 @@ function handleLogin() {
     // 即使加载失败，也确保有一个新会话
     if (state.sessions.length === 0) {
       createSession();
+      renderCurrentSession();
     }
-    renderCurrentSession();
     renderSidebarList();
   });
 }

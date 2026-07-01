@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=1.1.10';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.1.10';
+import { CONFIG } from './config.js?v=1.1.11';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.1.11';
  
 // ================================================================
 // 状态对象（可读写）
@@ -549,31 +549,38 @@ export async function loadAllFromServer() {
  
     var loadedSessions = [];
     var maxMsgId = 0;
- 
-    // 先添加本地未同步的会话（放在最前面）
+
+    // 先计算本地已有消息的最大 ID（用于新增消息时分配 ID）
+    for (var li = 0; li < state.sessions.length; li++) {
+      var lsm = state.sessions[li].messages || [];
+      for (var lj = 0; lj < lsm.length; lj++) {
+        if (typeof lsm[lj].id === "number" && lsm[lj].id > maxMsgId) maxMsgId = lsm[lj].id;
+      }
+    }
+
+    // 先添加本地未同步的会话（没有 serverSessionId 的）
+    // 这些是用户新建的，后端本来就没有，需要保留原样（ID 不变）
     for (var i = 0; i < localUnsynced.length; i++) {
       var ls = localUnsynced[i];
       loadedSessions.push(ls);
-      // 更新 maxMsgId
-      ls.messages.forEach(function(m) {
-        if (typeof m.id === "number" && m.id > maxMsgId) maxMsgId = m.id;
-      });
     }
- 
+
     // 再添加服务端的会话（已同步的）
+    // 关键：按 serverSessionId 与本地会话匹配，匹配到就复用本地 ID 和消息 ID
+    //       避免刷新后所有 ID 都变了导致当前会话丢失
     for (var i = 0; i < remoteSessions.length; i++) {
       var rs = remoteSessions[i];
- 
+
       // 跳过已删除的会话
       if (state.deletedSessionIds.has(rs.id)) {
         console.log('[灵知] loadAllFromServer - 跳过已删除的会话:', rs.id);
         continue;
       }
- 
+
       try {
         var messages = await listMessages(rs.id);
         console.log('[灵知] loadAllFromServer - 会话', rs.id, '消息数:', messages.length);
- 
+
         // 过滤掉已删除的消息
         var filteredMessages = messages.filter(function (m) {
           var isDeleted = state.deletedMessageIds.has(m.id);
@@ -582,20 +589,56 @@ export async function loadAllFromServer() {
           }
           return !isDeleted;
         });
- 
-        var localMsgs = filteredMessages.map(function (m, idx) {
-          var msgId = maxMsgId + idx + 1;
-          return {
+
+        // 查找本地是否已有相同 serverSessionId 的会话
+        var localMatch = null;
+        for (var k = 0; k < state.sessions.length; k++) {
+          if (state.sessions[k].serverSessionId === rs.id) {
+            localMatch = state.sessions[k];
+            break;
+          }
+        }
+
+        // 构建本地消息对象
+        //  - 如果本地有匹配，尽量复用本地消息 ID（按 serverMsgId 对应）
+        //  - 没有匹配的新消息分配新 ID
+        var localMsgIdMap = {};
+        if (localMatch && localMatch.messages) {
+          for (var mi = 0; mi < localMatch.messages.length; mi++) {
+            var lm = localMatch.messages[mi];
+            if (lm.serverMsgId) {
+              localMsgIdMap[lm.serverMsgId] = lm.id;
+            }
+          }
+        }
+
+        var localMsgs = [];
+        for (var fi = 0; fi < filteredMessages.length; fi++) {
+          var fm = filteredMessages[fi];
+          var msgId;
+          if (localMsgIdMap[fm.id]) {
+            msgId = localMsgIdMap[fm.id];
+          } else {
+            maxMsgId++;
+            msgId = maxMsgId;
+          }
+          localMsgs.push({
             id: msgId,
-            serverMsgId: m.id,
-            role: m.role,
-            content: m.content,
-          };
-        });
-        maxMsgId += filteredMessages.length;
- 
+            serverMsgId: fm.id,
+            role: fm.role,
+            content: fm.content,
+          });
+        }
+        // 更新 maxMsgId 为当前最大值
+        for (var mi = 0; mi < localMsgs.length; mi++) {
+          if (localMsgs[mi].id > maxMsgId) maxMsgId = localMsgs[mi].id;
+        }
+
+        // 会话 ID：本地有匹配就复用本地 ID，没有才生成新的
+        var sessionId = localMatch ? localMatch.id : (rs.id + '_local');
+
         loadedSessions.push({
-          id: rs.id + '_local',
+          id: sessionId,
           serverSessionId: rs.id,
           title: rs.title,
           createdAt: rs.created_at || Date.now(),
@@ -605,28 +648,50 @@ export async function loadAllFromServer() {
         console.warn('[灵知] loadAllFromServer - 加载会话消息失败:', rs.id, e);
       }
     }
- 
+
     console.log('[灵知] loadAllFromServer - 最终加载了', loadedSessions.length, '个会话');
 
-    // 确保始终有一个空话题（放在最前面）
+    // 确保始终有一个空话题（无消息的会话）
+    // 关键：优先复用已有的空话题 ID，避免每次刷新都生成新的空话题
     var hasEmpty = loadedSessions.some(function(s) {
       return s.messages && s.messages.length === 0;
     });
     if (!hasEmpty) {
-      console.log('[灵知] loadAllFromServer - 无空话题，创建一个');
-      loadedSessions.unshift({
-        id: Date.now() + '_local',
-        serverSessionId: null,
-        title: '新话题',
-        createdAt: Date.now(),
-        messages: [],
-      });
+      // 找本地现有的空话题（无 serverSessionId 且无消息），复用它的 ID
+      var existingEmpty = null;
+      for (var ei = 0; ei < state.sessions.length; ei++) {
+        var es = state.sessions[ei];
+        if (!es.serverSessionId && (!es.messages || es.messages.length === 0)) {
+          existingEmpty = es;
+          break;
+        }
+      }
+      if (existingEmpty) {
+        console.log('[灵知] loadAllFromServer - 复用本地空话题 ID:', existingEmpty.id);
+        loadedSessions.unshift({
+          id: existingEmpty.id,
+          serverSessionId: null,
+          title: existingEmpty.title || '新话题',
+          createdAt: existingEmpty.createdAt || Date.now(),
+          messages: [],
+        });
+      } else {
+        console.log('[灵知] loadAllFromServer - 无空话题，创建一个');
+        loadedSessions.unshift({
+          id: Date.now() + '_local',
+          serverSessionId: null,
+          title: '新话题',
+          createdAt: Date.now(),
+          messages: [],
+        });
+      }
     }
 
     state.sessions = loadedSessions;
     state.nextId = maxMsgId + 1;
 
     // 尝试恢复之前选中的会话
+    // 由于现在复用了本地 ID，大多数情况下都能直接匹配到
     var currentExists = state.sessions.some(function(s) { return s.id === currentId; });
     if (currentExists) {
       state.currentSessionId = currentId;
