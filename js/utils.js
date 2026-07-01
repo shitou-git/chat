@@ -195,30 +195,29 @@ export function renderContent(text) {
       }
       result += renderText(textContent);
     } else {
-      try {
-        if (typeof katex === "undefined") {
-          result += '<code class="math-fallback">' + escapeHtml(p.content) + "</code>";
-        } else {
-          var html = katex.renderToString(p.content, {
-            throwOnError: false,
-            displayMode: p.type === "block",
-            output: "html",
-            strict: function (errorCode, errorContent, token) {
-              // 忽略 display mode 中的换行警告
-              if (errorCode === 'newLineInDisplayMode') return false;
-              return errorContent;
-            }
-          });
-          if (p.type === "block") {
-            result += '<div class="katex-block">' + html + "</div>";
+        try {
+          if (typeof katex === "undefined") {
+            result += '<code class="math-fallback tts-sentence">' + escapeHtml(p.content) + "</code>";
           } else {
-            result += html;
+            var html = katex.renderToString(p.content, {
+              throwOnError: false,
+              displayMode: p.type === "block",
+              output: "html",
+              strict: function (errorCode, errorContent, token) {
+                if (errorCode === 'newLineInDisplayMode') return false;
+                return errorContent;
+              }
+            });
+            if (p.type === "block") {
+              result += '<div class="katex-block tts-sentence">' + html + "</div>";
+            } else {
+              result += html;
+            }
           }
+        } catch (e) {
+          result += '<code class="math-fallback tts-sentence">' + escapeHtml(p.content) + "</code>";
         }
-      } catch (e) {
-        result += '<code class="math-fallback">' + escapeHtml(p.content) + "</code>";
       }
-    }
   }
  
   // 第 4 轮：还原代码块
@@ -226,7 +225,7 @@ export function renderContent(text) {
     var block = codeBlocks[parseInt(idx, 10)];
     if (!block) return m;
     return (
-      '<pre class="code-block"><code>' +
+      '<pre class="code-block tts-sentence"><code>' +
       escapeHtml(block.code) +
       "</code></pre>"
     );
@@ -270,11 +269,93 @@ export function renderContentLight(text) {
   return result;
 }
  
+/** 将 HTML 字符串中的纯文本按句子切分，用 span.tts-sentence 包裹 */
+export function wrapTtsSentences(html) {
+  if (!html) return '';
+
+  var result = '';
+  var i = 0;
+  var len = html.length;
+  var currentText = '';
+  var sentenceIdx = 0;
+  var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';'];
+  var strongEndings = ['。', '！', '？', '!', '?'];
+
+  function isEnding(ch) {
+    for (var j = 0; j < sentenceEndings.length; j++) {
+      if (ch === sentenceEndings[j]) return true;
+    }
+    return false;
+  }
+
+  function wrap(text, startIdx) {
+    if (!text) return { html: '', count: 0 };
+    var trimmed = text.trim();
+    if (!trimmed) return { html: text, count: 0 };
+
+    var sentences = [];
+    var cur = '';
+    var k = 0;
+    while (k < text.length) {
+      var ch = text[k];
+      cur += ch;
+
+      if (isEnding(ch)) {
+        var next = text[k + 1] || '';
+        if (next === '"' || next === '"' || next === "'" || next === "'" ||
+            next === '）' || next === ')' || next === '」' || next === '』') {
+          cur += next;
+          k++;
+        }
+        sentences.push(cur);
+        cur = '';
+      }
+      k++;
+    }
+    if (cur) sentences.push(cur);
+
+    var out = '';
+    for (var s = 0; s < sentences.length; s++) {
+      out += '<span class="tts-sentence" data-tts-idx="' + (startIdx + s) + '">' + sentences[s] + '</span>';
+    }
+    return { html: out, count: sentences.length };
+  }
+
+  while (i < len) {
+    if (html[i] === '<') {
+      if (currentText) {
+        var w = wrap(currentText, sentenceIdx);
+        result += w.html;
+        sentenceIdx += w.count;
+        currentText = '';
+      }
+      var endIdx = html.indexOf('>', i);
+      if (endIdx === -1) {
+        result += html.substring(i);
+        break;
+      }
+      result += html.substring(i, endIdx + 1);
+      i = endIdx + 1;
+    } else {
+      currentText += html[i];
+      i++;
+    }
+  }
+
+  if (currentText) {
+    var w2 = wrap(currentText, sentenceIdx);
+    result += w2.html;
+    sentenceIdx += w2.count;
+  }
+
+  return result;
+}
+
 /** 渲染纯文本部分：Markdown 处理 */
 export function renderText(text) {
   var tables = [];
   var safeText = text;
- 
+
   // 表格预处理
   if (/\|/.test(safeText) && /\n\s*\|[-:\s|]+\|\s*\n/.test(safeText)) {
     var tableRegex = /(?:^|\n)((?:\|[^\n]*\|\n){1,}(?:\|[-:\s|]+\|\n)(?:\|[^\n]*\|\n?)+)/gm;
@@ -283,7 +364,7 @@ export function renderText(text) {
         return /\|\s*$/.test(l) || /^\s*\|/.test(l);
       });
       if (lines.length < 3) return fullMatch;
- 
+
       var sepLine = lines[1] || "";
       var aligns = sepLine.split("|").slice(1, -1).map(function (cell) {
         var c = (cell || "").trim();
@@ -294,7 +375,7 @@ export function renderText(text) {
         if (left) return "left";
         return "";
       });
- 
+
       var processCell = function (content) {
         if (!content) return "";
         var s = escapeHtml((content || "").trim())
@@ -303,7 +384,7 @@ export function renderText(text) {
           .replace(/`([^`]+)`/g, '<code class="code-inline">$1</code>');
         return s;
       };
- 
+
       var headerCells = lines[0].split("|").slice(1, -1);
       var theadHtml = "<thead><tr>";
       for (var h = 0; h < headerCells.length; h++) {
@@ -312,7 +393,7 @@ export function renderText(text) {
         theadHtml += "<th" + alignAttr + ">" + processCell(headerCells[h]) + "</th>";
       }
       theadHtml += "</tr></thead>";
- 
+
       var tbodyHtml = "<tbody>";
       for (var r = 2; r < lines.length; r++) {
         var cells = lines[r].split("|").slice(1, -1);
@@ -325,15 +406,15 @@ export function renderText(text) {
         tbodyHtml += "</tr>";
       }
       tbodyHtml += "</tbody>";
- 
+
       var tIdx = tables.length;
       tables.push('<table class="md-table">' + theadHtml + tbodyHtml + "</table>");
       return "\n\x02TABLE" + tIdx + "\x02\n";
     });
   }
- 
+
   var html = escapeHtml(safeText);
- 
+
   // 行内代码
   var inlineCodes = [];
   html = html.replace(/`([^`]+)`/g, function (m, code) {
@@ -341,33 +422,36 @@ export function renderText(text) {
     inlineCodes.push(code);
     return "\x01INLINE" + idx + "\x01";
   });
- 
+
   // 标题
   html = html.replace(/^#{1,6}\s+(.+)$/gm, function (m, content) {
     var level = m.match(/^#+/)[0].length;
     return "<h" + level + ">" + content + "</h" + level + ">";
   });
- 
+
   // 加粗
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
- 
+
   // 列表
   html = html.replace(/^[-*]\s+/gm, "• ");
   html = html.replace(/^(\d+\.)\s+/gm, "$1 ");
- 
+
   // 换行
   html = html.replace(/\n/g, "<br>");
- 
+
   // 还原行内代码
   html = html.replace(/\x01INLINE(\d+)\x01/g, function (m, idx) {
     return '<code class="code-inline">' + inlineCodes[parseInt(idx, 10)] + "</code>";
   });
- 
+
   // 还原表格
   html = html.replace(/\x02TABLE(\d+)\x02/g, function (m, idx) {
     return tables[parseInt(idx, 10)] || "";
   });
- 
+
+  // 句子级 TTS 高亮包裹
+  html = wrapTtsSentences(html);
+
   return html;
 }
  

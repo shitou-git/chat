@@ -531,6 +531,31 @@ body {
   font-size: 0.82rem;
 }
 
+/* ========== TTS 朗读高亮 ========== */
+.tts-sentence {
+  border-radius: 4px;
+  transition: background-color 0.25s ease, box-shadow 0.25s ease;
+}
+.tts-sentence.tts-highlight {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(59, 130, 246, 0.18));
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3), inset 0 0 0 1px rgba(139, 92, 246, 0.15);
+  border-radius: 6px;
+  padding: 1px 2px;
+  margin: -1px -2px;
+}
+.katex-block.tts-highlight {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(59, 130, 246, 0.12));
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+.code-block.tts-highlight {
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.4), inset 0 0 0 1px rgba(139, 92, 246, 0.2);
+}
+body.is-dark .tts-sentence.tts-highlight {
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.22), rgba(96, 165, 250, 0.22));
+  box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.4), inset 0 0 0 1px rgba(167, 139, 250, 0.2);
+}
+
 /* Markdown 表格 */
 .md-table {
   width: auto;
