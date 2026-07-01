@@ -406,6 +406,27 @@ function updateSegmentTimeRanges() {
   _streamTTS.totalDuration = acc;
 }
 
+function estimateRemainingDuration() {
+  if (!_streamTTS) return 0;
+  var durations = _streamTTS.segmentDurations;
+  var totalSegs = _streamTTS.totalSegments;
+  var knownDurations = [];
+  var knownTotal = 0;
+  var knownCount = 0;
+
+  for (var i = 0; i < totalSegs; i++) {
+    if (typeof durations[i] === 'number' && durations[i] > 0) {
+      knownDurations.push(durations[i]);
+      knownTotal += durations[i];
+      knownCount++;
+    }
+  }
+
+  var avgDuration = knownCount > 0 ? knownTotal / knownCount : 3;
+  var unknownCount = totalSegs - knownCount;
+  return knownTotal + unknownCount * avgDuration;
+}
+
 function startHighlightSyncLoop() {
   if (_highlightRAF) {
     cancelAnimationFrame(_highlightRAF);
@@ -431,74 +452,52 @@ function startHighlightSyncLoop() {
 
     var currentTime = audioEl.currentTime || 0;
     var currentIdx = _streamTTS.currentPlayIndex;
-    var segRanges = _streamTTS.segmentSentenceRanges;
     var timeRanges = _streamTTS.segmentTimeRanges;
     var totalSegs = _streamTTS.totalSegments;
 
-    var targetSentenceIdx = 0;
-
-    if (segRanges && segRanges.length > 0 && currentIdx < segRanges.length) {
-      var segInfo = segRanges[currentIdx];
-      var segSentStart = segInfo.start;
-      var segSentEnd = segInfo.end;
-      var segCharCounts = segInfo.charCounts;
-      var segTotalChars = segInfo.totalChars || 1;
-
-      var segDuration = 1;
-      if (timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length) {
-        segDuration = timeRanges[currentIdx].duration || 1;
-      }
-
-      var segProgress = currentTime / segDuration;
-      segProgress = Math.max(0, Math.min(0.999, segProgress));
-
-      var adjustedTime = currentTime - (CONFIG.TTS_HIGHLIGHT_DELAY || 0);
-      if (adjustedTime < 0) adjustedTime = 0;
-      var adjustedProgress = adjustedTime / segDuration;
-      adjustedProgress = Math.max(0, Math.min(0.999, adjustedProgress));
-
-      var targetChars = adjustedProgress * segTotalChars;
-      var accChars = 0;
-      var offsetInSeg = 0;
-
-      if (segCharCounts && segCharCounts.length > 0) {
-        for (var j = 0; j < segCharCounts.length; j++) {
-          accChars += segCharCounts[j];
-          if (accChars >= targetChars) {
-            offsetInSeg = j;
-            break;
-          }
-          offsetInSeg = j;
-        }
-      } else {
-        var segSentCount = segSentEnd - segSentStart + 1;
-        offsetInSeg = Math.floor(segProgress * segSentCount);
-        if (offsetInSeg >= segSentCount) offsetInSeg = segSentCount - 1;
-      }
-
-      targetSentenceIdx = segSentStart + offsetInSeg;
+    var playedDuration = 0;
+    if (timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length) {
+      playedDuration = timeRanges[currentIdx].start || 0;
     } else {
-      var ratio = currentIdx / Math.max(1, totalSegs);
-      targetSentenceIdx = Math.floor(ratio * sentences.length);
+      var estimatedSegDuration = 3;
+      if (timeRanges && timeRanges.length > 0) {
+        var sum = 0;
+        for (var k = 0; k < timeRanges.length; k++) {
+          sum += timeRanges[k].duration || 0;
+        }
+        estimatedSegDuration = sum / timeRanges.length;
+      }
+      playedDuration = currentIdx * estimatedSegDuration;
     }
 
+    var currentTotalTime = playedDuration + currentTime;
+    var estimatedTotalDuration = estimateRemainingDuration();
+    var globalProgress = currentTotalTime / Math.max(0.1, estimatedTotalDuration);
+    globalProgress = Math.max(0, Math.min(0.999, globalProgress));
+
+    var delay = CONFIG.TTS_HIGHLIGHT_DELAY || 0;
+    if (delay > 0) {
+      var adjustedTime = currentTotalTime - delay;
+      if (adjustedTime < 0) adjustedTime = 0;
+      globalProgress = adjustedTime / Math.max(0.1, estimatedTotalDuration);
+      globalProgress = Math.max(0, Math.min(0.999, globalProgress));
+    }
+
+    var targetSentenceIdx = Math.floor(globalProgress * sentences.length);
     if (targetSentenceIdx >= sentences.length) targetSentenceIdx = sentences.length - 1;
     if (targetSentenceIdx < 0) targetSentenceIdx = 0;
 
     applyHighlight(sentences, targetSentenceIdx);
 
     if (CONFIG.TTS_DEBUG) {
-      var timeRangesAvail = timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length;
       console.log('[TTS-Highlight]', {
-        segIdx: currentIdx,
+        segIdx: currentIdx + '/' + totalSegs,
         audioTime: currentTime.toFixed(3) + 's',
-        segDuration: timeRangesAvail ? (timeRanges[currentIdx].duration || 0).toFixed(2) + 's' : 'unknown',
-        segProgress: (segProgress * 100).toFixed(1) + '%',
-        adjustedProgress: (adjustedProgress * 100).toFixed(1) + '%',
-        targetSentence: targetSentenceIdx + '/' + sentences.length,
-        sentencesInSeg: segRanges && segRanges[currentIdx]
-          ? (segRanges[currentIdx].end - segRanges[currentIdx].start + 1)
-          : 'unknown'
+        playedDuration: playedDuration.toFixed(2) + 's',
+        currentTotalTime: currentTotalTime.toFixed(2) + 's',
+        estimatedTotal: estimatedTotalDuration.toFixed(2) + 's',
+        globalProgress: (globalProgress * 100).toFixed(1) + '%',
+        targetSentence: targetSentenceIdx + '/' + sentences.length
       });
     }
 

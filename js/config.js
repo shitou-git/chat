@@ -48,8 +48,13 @@ export const CONFIG = {
   MAX_TEXTAREA_HEIGHT: 120,
   KATEX_WAIT_TIMEOUT: 5000,
 
-  /** TTS 高亮同步配置 */
-  TTS_HIGHLIGHT_DELAY: 0.15,
+  /** TTS 高亮同步配置
+   *  TTS_HIGHLIGHT_DELAY: 高亮时间偏移（秒）。
+   *    - 正值：高亮滞后于声音（声音先到，高亮后到）
+   *    - 负值：高亮超前于声音（高亮先到，声音后到）
+   *    - 默认 0，根据实际体验调整
+   */
+  TTS_HIGHLIGHT_DELAY: 0,
   TTS_DEBUG: false,
 };
 
