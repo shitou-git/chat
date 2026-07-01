@@ -35,6 +35,10 @@ export const CONFIG = {
   /** UI 配置 */
   MAX_TEXTAREA_HEIGHT: 120,
   KATEX_WAIT_TIMEOUT: 5000,
+
+  /** TTS 高亮同步配置 */
+  TTS_HIGHLIGHT_DELAY: 0.15,
+  TTS_DEBUG: false,
 };
 
 /** 系统提示词 */

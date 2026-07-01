@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=58';
-import { stripMarkdown } from './utils.js?v=58';
+import { CONFIG } from './config.js?v=59';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=59';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -185,6 +185,8 @@ export function initVoices() {
 export function initStreamTTS() {
   _streamTTS = {
     segments: [],
+    segmentSentenceRanges: [],
+    totalSentences: 0,
     synthesizedBlobs: [],
     segmentDurations: [],
     segmentTimeRanges: [],
@@ -206,6 +208,8 @@ export function initStreamTTS() {
 export function resetStreamTTS() {
   if (!_streamTTS) return;
   _streamTTS.segments = [];
+  _streamTTS.segmentSentenceRanges = [];
+  _streamTTS.totalSentences = 0;
   _streamTTS.synthesizedBlobs = [];
   _streamTTS.segmentDurations = [];
   _streamTTS.segmentTimeRanges = [];
@@ -326,67 +330,64 @@ export function stopStreamTTS() {
 // 文本分段
 // ================================================================
  
-export function splitTextIntoSegments(text) {
-  if (!text) return [];
+export function splitTextIntoSentenceSegments(text) {
+  if (!text) return { segments: [], sentenceRanges: [], totalSentences: 0 };
   var cleaned = text.replace(/\r\n/g, '\n').trim();
-  if (!cleaned) return [];
- 
-  var segments = [];
-  var current = '';
+  if (!cleaned) return { segments: [], sentenceRanges: [], totalSentences: 0 };
+
+  var sentences = splitIntoSentences(cleaned);
+  if (sentences.length === 0) return { segments: [], sentenceRanges: [], totalSentences: 0 };
+
   var MIN_SEG_LEN = 20;
-  var MAX_SEG_LEN = 100;
-  var STRONG_ENDING_MIN_LEN = 8;
-  var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';', '，', ','];
-  var strongEndings = ['。', '！', '？', '!', '?'];
- 
-  function isStrongEnding(ch) {
-    for (var k = 0; k < strongEndings.length; k++) {
-      if (ch === strongEndings[k]) return true;
-    }
-    return false;
-  }
- 
-  for (var i = 0; i < cleaned.length; i++) {
-    var ch = cleaned[i];
-    current += ch;
- 
-    var isSentenceEnd = false;
-    for (var j = 0; j < sentenceEndings.length; j++) {
-      if (ch === sentenceEndings[j]) {
-        isSentenceEnd = true;
-        break;
+  var MAX_SEG_LEN = 120;
+
+  var segments = [];
+  var sentenceRanges = [];
+  var sentenceCharCounts = [];
+  var currentText = '';
+  var startSentenceIdx = 0;
+  var segCharCounts = [];
+
+  for (var i = 0; i < sentences.length; i++) {
+    var sent = sentences[i];
+    sentenceCharCounts.push(sent.length);
+    var newLen = currentText.length + sent.length;
+
+    if (currentText.length > 0 && newLen > MAX_SEG_LEN) {
+      segments.push(currentText);
+      sentenceRanges.push({ start: startSentenceIdx, end: i - 1, charCounts: segCharCounts.slice(), totalChars: currentText.length });
+      currentText = sent;
+      startSentenceIdx = i;
+      segCharCounts = [sent.length];
+    } else {
+      currentText += sent;
+      segCharCounts.push(sent.length);
+      if (currentText.length >= MIN_SEG_LEN && sentences.length - i > 1) {
+        segments.push(currentText);
+        sentenceRanges.push({ start: startSentenceIdx, end: i, charCounts: segCharCounts.slice(), totalChars: currentText.length });
+        currentText = '';
+        startSentenceIdx = i + 1;
+        segCharCounts = [];
       }
-    }
- 
-    if (isSentenceEnd) {
-      var curLen = current.trim().length;
-      var canSplit = false;
-      if (curLen >= MIN_SEG_LEN) {
-        canSplit = true;
-      } else if (curLen >= STRONG_ENDING_MIN_LEN && isStrongEnding(ch)) {
-        canSplit = true;
-      }
-      if (canSplit) {
-        segments.push(current.trim());
-        current = '';
-      }
-    }
- 
-    if (current.length >= MAX_SEG_LEN) {
-      var trimmed = current.trim();
-      if (trimmed) {
-        segments.push(trimmed);
-      }
-      current = '';
     }
   }
- 
-  var tail = current.trim();
-  if (tail && tail.length >= 5) {
-    segments.push(tail);
+
+  if (currentText.length > 0) {
+    segments.push(currentText);
+    sentenceRanges.push({ start: startSentenceIdx, end: sentences.length - 1, charCounts: segCharCounts.slice(), totalChars: currentText.length });
   }
- 
-  return segments;
+
+  return {
+    segments: segments,
+    sentenceRanges: sentenceRanges,
+    totalSentences: sentences.length,
+    sentenceCharCounts: sentenceCharCounts
+  };
+}
+
+export function splitTextIntoSegments(text) {
+  var result = splitTextIntoSentenceSegments(text);
+  return result.segments;
 }
  
 // ================================================================
@@ -430,24 +431,75 @@ function startHighlightSyncLoop() {
 
     var currentTime = audioEl.currentTime || 0;
     var currentIdx = _streamTTS.currentPlayIndex;
-    var ranges = _streamTTS.segmentTimeRanges;
+    var segRanges = _streamTTS.segmentSentenceRanges;
+    var timeRanges = _streamTTS.segmentTimeRanges;
+    var totalSegs = _streamTTS.totalSegments;
 
-    if (ranges.length > 0 && currentIdx < ranges.length) {
-      var segStart = ranges[currentIdx] ? ranges[currentIdx].start : 0;
-      var segDuration = ranges[currentIdx] ? ranges[currentIdx].duration : 1;
-      var segProgress = (currentTime - segStart) / segDuration;
-      segProgress = Math.max(0, Math.min(1, segProgress));
-      var totalRatio = (currentIdx + segProgress) / _streamTTS.totalSegments;
-      var domIdx = Math.floor(totalRatio * sentences.length);
-      if (domIdx >= sentences.length) domIdx = sentences.length - 1;
-      if (domIdx < 0) domIdx = 0;
-      applyHighlight(sentences, domIdx);
+    var targetSentenceIdx = 0;
+
+    if (segRanges && segRanges.length > 0 && currentIdx < segRanges.length) {
+      var segInfo = segRanges[currentIdx];
+      var segSentStart = segInfo.start;
+      var segSentEnd = segInfo.end;
+      var segCharCounts = segInfo.charCounts;
+      var segTotalChars = segInfo.totalChars || 1;
+
+      var segDuration = 1;
+      if (timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length) {
+        segDuration = timeRanges[currentIdx].duration || 1;
+      }
+
+      var segProgress = currentTime / segDuration;
+      segProgress = Math.max(0, Math.min(0.999, segProgress));
+
+      var adjustedTime = currentTime - (CONFIG.TTS_HIGHLIGHT_DELAY || 0);
+      if (adjustedTime < 0) adjustedTime = 0;
+      var adjustedProgress = adjustedTime / segDuration;
+      adjustedProgress = Math.max(0, Math.min(0.999, adjustedProgress));
+
+      var targetChars = adjustedProgress * segTotalChars;
+      var accChars = 0;
+      var offsetInSeg = 0;
+
+      if (segCharCounts && segCharCounts.length > 0) {
+        for (var j = 0; j < segCharCounts.length; j++) {
+          accChars += segCharCounts[j];
+          if (accChars >= targetChars) {
+            offsetInSeg = j;
+            break;
+          }
+          offsetInSeg = j;
+        }
+      } else {
+        var segSentCount = segSentEnd - segSentStart + 1;
+        offsetInSeg = Math.floor(segProgress * segSentCount);
+        if (offsetInSeg >= segSentCount) offsetInSeg = segSentCount - 1;
+      }
+
+      targetSentenceIdx = segSentStart + offsetInSeg;
     } else {
-      var ratio = currentIdx / _streamTTS.totalSegments;
-      var domIdx = Math.floor(ratio * sentences.length);
-      if (domIdx >= sentences.length) domIdx = sentences.length - 1;
-      if (domIdx < 0) domIdx = 0;
-      applyHighlight(sentences, domIdx);
+      var ratio = currentIdx / Math.max(1, totalSegs);
+      targetSentenceIdx = Math.floor(ratio * sentences.length);
+    }
+
+    if (targetSentenceIdx >= sentences.length) targetSentenceIdx = sentences.length - 1;
+    if (targetSentenceIdx < 0) targetSentenceIdx = 0;
+
+    applyHighlight(sentences, targetSentenceIdx);
+
+    if (CONFIG.TTS_DEBUG) {
+      var timeRangesAvail = timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length;
+      console.log('[TTS-Highlight]', {
+        segIdx: currentIdx,
+        audioTime: currentTime.toFixed(3) + 's',
+        segDuration: timeRangesAvail ? (timeRanges[currentIdx].duration || 0).toFixed(2) + 's' : 'unknown',
+        segProgress: (segProgress * 100).toFixed(1) + '%',
+        adjustedProgress: (adjustedProgress * 100).toFixed(1) + '%',
+        targetSentence: targetSentenceIdx + '/' + sentences.length,
+        sentencesInSeg: segRanges && segRanges[currentIdx]
+          ? (segRanges[currentIdx].end - segRanges[currentIdx].start + 1)
+          : 'unknown'
+      });
     }
 
     _highlightRAF = requestAnimationFrame(syncHighlight);
@@ -723,15 +775,17 @@ export function streamSpeakWorker(text, btnEl) {
     updateBubblePlayBtn(btnEl, 'playing');
     _currentSpeakBtn = btnEl;
   }
- 
+
   var plainText = stripMarkdown(text);
-  var segments = splitTextIntoSegments(plainText);
-  if (segments.length === 0) return;
- 
-  _streamTTS.totalSegments = segments.length;
+  var segResult = splitTextIntoSentenceSegments(plainText);
+  if (segResult.segments.length === 0) return;
+
+  _streamTTS.totalSegments = segResult.segments.length;
+  _streamTTS.segmentSentenceRanges = segResult.sentenceRanges;
+  _streamTTS.totalSentences = segResult.totalSentences;
   _streamTTS.allReceived = true;
-  _streamTTS.segments = segments;
- 
+  _streamTTS.segments = segResult.segments;
+
   showToast('正在合成语音...');
   startSynthesisQueue();
 }

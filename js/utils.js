@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=58';
+import { IDENTITY_REPLY } from './config.js?v=59';
  
 // ================================================================
 // HTML 转义
@@ -269,6 +269,41 @@ export function renderContentLight(text) {
   return result;
 }
  
+/** 将纯文本按句子切分，返回句子数组 */
+export function splitIntoSentences(text) {
+  if (!text) return [];
+  var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';'];
+
+  function isEnding(ch) {
+    for (var j = 0; j < sentenceEndings.length; j++) {
+      if (ch === sentenceEndings[j]) return true;
+    }
+    return false;
+  }
+
+  var sentences = [];
+  var cur = '';
+  var k = 0;
+  while (k < text.length) {
+    var ch = text[k];
+    cur += ch;
+
+    if (isEnding(ch)) {
+      var next = text[k + 1] || '';
+      if (next === '"' || next === '"' || next === "'" || next === "'" ||
+          next === '）' || next === ')' || next === '」' || next === '』') {
+        cur += next;
+        k++;
+      }
+      sentences.push(cur);
+      cur = '';
+    }
+    k++;
+  }
+  if (cur) sentences.push(cur);
+  return sentences;
+}
+
 /** 将 HTML 字符串中的纯文本按句子切分，用 span.tts-sentence 包裹 */
 export function wrapTtsSentences(html) {
   if (!html) return '';
