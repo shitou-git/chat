@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=1.1.11';
+import { CONFIG } from './config.js?v=1.2.1';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=1.1.11';
+} from './state.js?v=1.2.1';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=1.1.11';
+} from './render.js?v=1.2.1';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=1.1.11';
+} from './chat.js?v=1.2.1';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=1.1.11';
+} from './tts.js?v=1.2.1';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=1.1.11';
+} from './auth.js?v=1.2.1';
  
 // ================================================================
 // 事件绑定
@@ -187,7 +187,7 @@ export function setupChat() {
  
 var _syncThrottleTimer = null;
 var _lastServerRefresh = 0;
-var SERVER_REFRESH_INTERVAL = 200000;
+var SERVER_REFRESH_INTERVAL = 300000; // 5分钟
  
 function setupMultiTabSync() {
   // 1) 监听 storage 事件：其他标签页修改 localStorage 时触发
