@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=1.2.1';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.2.1';
+import { CONFIG } from './config.js?v=1.2.2';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.2.2';
  
 // ================================================================
 // 状态对象（可读写）
@@ -299,7 +299,12 @@ export function deleteSession(id) {
 /** 持久化所有会话 */
 export function saveSessions() {
   try {
-    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(state.sessions));
+    // 同时保存会话列表和当前选中的会话ID，避免页面刷新后跳到空话题
+    var data = {
+      sessions: state.sessions,
+      currentSessionId: state.currentSessionId,
+    };
+    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
     console.warn("saveSessions error:", e);
   }
@@ -357,9 +362,24 @@ export function loadSessions() {
     var raw = localStorage.getItem(CONFIG.STORAGE_KEY);
     if (!raw) return;
     var parsed = JSON.parse(raw);
+
+    // 兼容新旧数据格式：
+    // - 旧版：直接是会话数组 [...sessions]
+    // - 新版：对象 { sessions: [...], currentSessionId: "xxx" }
+    var sessionsArray = null;
+    var savedCurrentId = null;
     if (Array.isArray(parsed)) {
+      // 旧格式：只有会话数组
+      sessionsArray = parsed;
+    } else if (parsed && Array.isArray(parsed.sessions)) {
+      // 新格式：包含 currentSessionId
+      sessionsArray = parsed.sessions;
+      savedCurrentId = parsed.currentSessionId;
+    }
+
+    if (sessionsArray) {
       // 数据校验：过滤掉结构不完整的会话
-      state.sessions = parsed.filter(function (s) {
+      state.sessions = sessionsArray.filter(function (s) {
         return s && typeof s.id !== "undefined" && Array.isArray(s.messages);
       }).map(function (s) {
         if (typeof s.title !== "string") s.title = "新话题";
@@ -374,6 +394,12 @@ export function loadSessions() {
         });
       });
       state.nextId = maxId + 1;
+
+      // 恢复当前选中的会话ID（关键！避免页面刷新后跳到空话题）
+      if (savedCurrentId && state.sessions.some(function (s) { return s.id === savedCurrentId; })) {
+        state.currentSessionId = savedCurrentId;
+        console.log('[灵知] loadSessions - 恢复当前会话:', savedCurrentId);
+      }
     }
     // 同时加载删除记录
     loadDeletedIds();

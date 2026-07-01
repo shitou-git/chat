@@ -11,16 +11,16 @@ import {
   extractFollowUpQuestions,
   generateFallbackQuestions
 
-} from './utils.js?v=1.2.1';
+} from './utils.js?v=1.2.2';
 import {
   state,
   currentSession,
   chatData,
   truncateMessagesFrom
 
-} from './state.js?v=1.2.1';
-import { CONFIG } from './config.js?v=1.2.1';
-import { attachSpeakButton } from './tts.js?v=1.2.1';
+} from './state.js?v=1.2.2';
+import { CONFIG } from './config.js?v=1.2.2';
+import { attachSpeakButton } from './tts.js?v=1.2.2';
  
 // 导出到全局，供 chat.js 和 app.js 使用
 // 用对象包装避免 ES Module 只读绑定问题
