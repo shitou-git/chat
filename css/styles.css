@@ -1058,6 +1058,118 @@ body.is-dark .followup-item:hover {
 }
 .chat-confirm-ok:hover { opacity: 0.9; }
 
+/* ========== 关于弹窗 ========== */
+.about-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1400;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.about-overlay.show {
+  display: flex;
+  opacity: 1;
+  visibility: visible;
+}
+.about-modal {
+  background: var(--c-surface);
+  border-radius: 20px;
+  padding: 32px 28px 24px;
+  max-width: 340px;
+  width: calc(100% - 48px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: modalIn 0.25s ease;
+  position: relative;
+  text-align: center;
+}
+.about-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--c-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+  font-family: inherit;
+}
+.about-close:hover { color: var(--c-text); }
+.about-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+.about-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--c-text);
+  margin-bottom: 4px;
+  background: linear-gradient(135deg, var(--c-primary), #a855f7);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.about-version {
+  font-size: 0.9rem;
+  color: var(--c-muted);
+  margin-bottom: 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.about-desc {
+  font-size: 0.95rem;
+  color: var(--c-text-secondary);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.about-info {
+  background: var(--c-bg);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+.about-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 0.9rem;
+}
+.about-info-label {
+  color: var(--c-muted);
+}
+.about-info-value {
+  color: var(--c-text);
+  font-weight: 500;
+}
+.about-ok-btn {
+  width: 100%;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, var(--c-primary), #a855f7);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  font-family: inherit;
+}
+.about-ok-btn:hover { opacity: 0.9; }
+.about-ok-btn:active { transform: scale(0.98); }
+
 /* ========== 登录/注册弹窗 ========== */
 .auth-overlay {
   position: fixed;

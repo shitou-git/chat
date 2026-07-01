@@ -4,6 +4,18 @@
  */
 
 export const CONFIG = {
+  /** 应用版本号（每次修改都需同步更新此版本号及所有 ?v=xx 引用） */
+  APP_VERSION: "v60",
+
+  /** 应用名称 */
+  APP_NAME: "灵知",
+
+  /** 应用简介 */
+  APP_DESCRIPTION: "基于大语言模型的智能对话助手，支持数学公式渲染、语音播报、多会话管理等功能。",
+
+  /** 开发者 */
+  APP_DEVELOPER: "Stone",
+
   /** 聊天 API 代理地址（Cloudflare Worker） */
   API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
 

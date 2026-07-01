@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=59';
+import { CONFIG } from './config.js?v=60';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=59';
+} from './state.js?v=60';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=59';
+} from './render.js?v=60';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=59';
+} from './chat.js?v=60';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=59';
+} from './tts.js?v=60';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=59';
+} from './auth.js?v=60';
  
 // ================================================================
 // 事件绑定
@@ -425,6 +425,53 @@ function setupAuth() {
       e.stopPropagation();
       hideUserMenu();
       window.open('https://shitou-git.github.io/Image/st', '_blank');
+    });
+  }
+
+  // 关于按钮
+  var aboutBtn = document.getElementById('userMenuAbout');
+  if (aboutBtn) {
+    aboutBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      hideUserMenu();
+      openAboutModal();
+    });
+  }
+
+  // 关于弹窗关闭
+  var aboutOverlay = document.getElementById('aboutOverlay');
+  var aboutCloseBtn = document.getElementById('aboutCloseBtn');
+  var aboutOkBtn = document.getElementById('aboutOkBtn');
+
+  function openAboutModal() {
+    if (!aboutOverlay) return;
+
+    var versionEl = document.getElementById('aboutVersion');
+    var descEl = document.getElementById('aboutDesc');
+    var modelEl = document.getElementById('aboutModel');
+    var titleEl = document.getElementById('aboutTitle');
+
+    if (titleEl && CONFIG.APP_NAME) titleEl.textContent = CONFIG.APP_NAME;
+    if (versionEl && CONFIG.APP_VERSION) versionEl.textContent = CONFIG.APP_VERSION;
+    if (descEl && CONFIG.APP_DESCRIPTION) descEl.textContent = CONFIG.APP_DESCRIPTION;
+    if (modelEl && CONFIG.MODEL) modelEl.textContent = CONFIG.MODEL;
+
+    aboutOverlay.classList.add('show');
+  }
+
+  function closeAboutModal() {
+    if (aboutOverlay) aboutOverlay.classList.remove('show');
+  }
+
+  if (aboutCloseBtn) {
+    aboutCloseBtn.addEventListener('click', closeAboutModal);
+  }
+  if (aboutOkBtn) {
+    aboutOkBtn.addEventListener('click', closeAboutModal);
+  }
+  if (aboutOverlay) {
+    aboutOverlay.addEventListener('click', function (e) {
+      if (e.target === aboutOverlay) closeAboutModal();
     });
   }
 
