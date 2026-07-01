@@ -3,14 +3,67 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.1.7';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.1.7';
+import { CONFIG } from './config.js?v=1.1.8';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.1.8';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
 var _currentBubbleEl = null;
 var _highlightRAF = null;
 var _lastHighlightIdx = -1;
+
+// 句子字数信息缓存：按字数加权映射高亮，避免长短句不同步
+// （旧方案按句子数均分进度，长句读完前高亮就跳走，短句读完后高亮停留）
+var _charInfoCache = null;
+
+/** 计算并缓存每个 TTS 句子的字数累计信息
+ *  返回 { cumulative: [0, len1, len1+len2, ...], total: 总字数 }
+ *  缓存键为当前 bubble 引用 + 句子数量，bubble 不变时复用，避免每帧重复遍历 DOM */
+function getCharInfo(sentences) {
+  if (_charInfoCache &&
+      _charInfoCache.bubble === _currentBubbleEl &&
+      _charInfoCache.sentenceCount === sentences.length) {
+    return _charInfoCache;
+  }
+  var cumulative = [0];
+  var total = 0;
+  for (var i = 0; i < sentences.length; i++) {
+    var len = (sentences[i].textContent || '').length;
+    if (len < 1) len = 1; // 空句子至少占 1，避免除零与区间塌陷
+    total += len;
+    cumulative.push(total);
+  }
+  _charInfoCache = {
+    bubble: _currentBubbleEl,
+    sentenceCount: sentences.length,
+    cumulative: cumulative,
+    total: total
+  };
+  return _charInfoCache;
+}
+
+/** 根据全局进度（0~1）按字数加权定位目标句子索引
+ *  长句字数多，占的进度区间大，停留更久，更贴合实际朗读时间 */
+function getTargetSentenceByCharProgress(sentences, globalProgress) {
+  if (sentences.length === 0) return -1;
+  if (sentences.length === 1) return 0;
+  var info = getCharInfo(sentences);
+  if (info.total <= 0) return 0;
+  var targetCharPos = globalProgress * info.total;
+  // 在 cumulative 中线性查找目标字符位置落在哪个句子区间
+  // （句子数通常几十个以内，线性查找足够）
+  var idx = 0;
+  for (var i = 0; i < info.cumulative.length - 1; i++) {
+    if (targetCharPos < info.cumulative[i + 1]) {
+      idx = i;
+      break;
+    }
+    idx = i; // 兜底：到达末尾
+  }
+  if (idx >= sentences.length) idx = sentences.length - 1;
+  if (idx < 0) idx = 0;
+  return idx;
+}
 
 function getMessageBubble(btnEl) {
   if (!btnEl) return null;
@@ -33,6 +86,7 @@ function clearTtsHighlight() {
     _highlightRAF = null;
   }
   _lastHighlightIdx = -1;
+  _charInfoCache = null; // 清除字数缓存，下次重新计算
   if (!_currentBubbleEl) return;
   var sentences = getTtsSentences(_currentBubbleEl);
   for (var i = 0; i < sentences.length; i++) {
@@ -483,9 +537,7 @@ function startHighlightSyncLoop() {
       globalProgress = Math.max(0, Math.min(0.999, globalProgress));
     }
 
-    var targetSentenceIdx = Math.floor(globalProgress * sentences.length);
-    if (targetSentenceIdx >= sentences.length) targetSentenceIdx = sentences.length - 1;
-    if (targetSentenceIdx < 0) targetSentenceIdx = 0;
+    var targetSentenceIdx = getTargetSentenceByCharProgress(sentences, globalProgress);
 
     applyHighlight(sentences, targetSentenceIdx);
 
@@ -843,6 +895,30 @@ export function speakViaWebSpeech(plainText, btnEl) {
   var wsLastIdx = -1;
   var wsEnded = false;
 
+  // 预计算每句字数累计，用于按字数加权定位高亮（与 worker 路径保持一致）
+  var wsCumulative = [0];
+  var wsTotalChars = 0;
+  for (var wi = 0; wi < wsSentences.length; wi++) {
+    var wlen = (wsSentences[wi].textContent || '').length;
+    if (wlen < 1) wlen = 1;
+    wsTotalChars += wlen;
+    wsCumulative.push(wsTotalChars);
+  }
+  // 按字数加权定位：ratio(0~1) → 目标字符位置 → 句子索引
+  function wsCharIndexToSentence(ratio) {
+    if (wsSentences.length === 0) return -1;
+    if (wsSentences.length === 1 || wsTotalChars <= 0) return 0;
+    var pos = ratio * wsTotalChars;
+    var di = 0;
+    for (var ci = 0; ci < wsCumulative.length - 1; ci++) {
+      if (pos < wsCumulative[ci + 1]) { di = ci; break; }
+      di = ci;
+    }
+    if (di >= wsSentences.length) di = wsSentences.length - 1;
+    if (di < 0) di = 0;
+    return di;
+  }
+
   function wsClearHighlight() {
     if (wsRAF) {
       cancelAnimationFrame(wsRAF);
@@ -865,8 +941,7 @@ export function speakViaWebSpeech(plainText, btnEl) {
     var elapsed = (Date.now() - wsStartTime) / 1000;
     var ratio = elapsed / wsEstimatedDuration;
     ratio = Math.max(0, Math.min(1, ratio));
-    var domIdx = Math.floor(ratio * wsSentences.length);
-    if (domIdx >= wsSentences.length) domIdx = wsSentences.length - 1;
+    var domIdx = wsCharIndexToSentence(ratio);
     if (domIdx !== wsLastIdx) {
       wsLastIdx = domIdx;
       for (var i = 0; i < wsSentences.length; i++) {
@@ -914,14 +989,16 @@ export function speakViaWebSpeech(plainText, btnEl) {
     var charIndex = e.charIndex || 0;
     var totalChars = trimmed.length || 1;
     var ratio = charIndex / totalChars;
-    var domIdx = Math.floor(ratio * wsSentences.length);
-    if (domIdx >= wsSentences.length) domIdx = wsSentences.length - 1;
+    // 按字数加权定位：charIndex 即字符位置，直接映射到句子区间
+    var domIdx = wsCharIndexToSentence(ratio);
     if (domIdx < 0) domIdx = 0;
     wsLastIdx = domIdx;
     for (var i = 0; i < wsSentences.length; i++) {
       wsSentences[i].classList.remove('tts-highlight');
     }
-    wsSentences[domIdx].classList.add('tts-highlight');
+    if (domIdx >= 0 && domIdx < wsSentences.length) {
+      wsSentences[domIdx].classList.add('tts-highlight');
+    }
   };
   utter.onend = function () {
     wsEnded = true;

@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=1.1.7';
+import { CONFIG } from './config.js?v=1.1.8';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=1.1.7';
+} from './state.js?v=1.1.8';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=1.1.7';
+} from './render.js?v=1.1.8';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=1.1.7';
+} from './chat.js?v=1.1.8';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=1.1.7';
+} from './tts.js?v=1.1.8';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=1.1.7';
+} from './auth.js?v=1.1.8';
  
 // ================================================================
 // 事件绑定
