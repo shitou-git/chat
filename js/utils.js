@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=1.2.8';
+import { IDENTITY_REPLY } from './config.js?v=1.2.9';
  
 // ================================================================
 // HTML 转义
@@ -340,20 +340,20 @@ export function wrapTtsSentences(html) {
   var result = '';
   var i = 0;
   var len = html.length;
-  var sentenceStart = 0;
+  var sentenceStart = null;
   var sentenceIdx = 0;
-  var preClosed = []; // balanceTags 预闭合的标签（原 HTML 中对应的结束标签需跳过）
+  var preClosed = [];
 
   function flush(endPos) {
-    if (endPos <= sentenceStart) return;
+    if (sentenceStart === null || endPos <= sentenceStart) return;
     var seg = html.substring(sentenceStart, endPos);
     if (!hasVisibleText(seg)) {
       result += seg;
       sentenceStart = endPos;
+      if (sentenceStart >= len) sentenceStart = null;
       return;
     }
 
-    // 平衡标签：分析 seg 内标签开闭情况
     var openStack = [];
     var unmatchedCloses = [];
     var j = 0;
@@ -384,12 +384,10 @@ export function wrapTtsSentences(html) {
       }
     }
 
-    // 前缀：补上未匹配的结束标签对应的开始标签
     var prefix = '';
     for (var k = 0; k < unmatchedCloses.length; k++) {
       prefix += '<' + unmatchedCloses[k] + '>';
     }
-    // 后缀：补上未闭合的开始标签对应的结束标签
     var suffix = '';
     for (var k = openStack.length - 1; k >= 0; k--) {
       suffix += '</' + openStack[k] + '>';
@@ -399,6 +397,7 @@ export function wrapTtsSentences(html) {
     result += '<span class="tts-sentence" data-tts-idx="' + sentenceIdx + '">' + prefix + seg + suffix + '</span>';
     sentenceIdx++;
     sentenceStart = endPos;
+    if (sentenceStart >= len) sentenceStart = null;
   }
 
   while (i < len) {
@@ -411,29 +410,25 @@ export function wrapTtsSentences(html) {
       var isBlock = BLOCK_TAGS[tagName];
 
       if (isEndTag) {
-        // 检查是否是预闭合的标签（balanceTags 已添加过结束标签）
         var preIdx = -1;
         for (var k = preClosed.length - 1; k >= 0; k--) {
           if (preClosed[k] === tagName) { preIdx = k; break; }
         }
         if (preIdx >= 0) {
           preClosed.splice(preIdx, 1);
-          flush(i);
-          sentenceStart = endIdx + 1;
           i = endIdx + 1;
           continue;
         }
       }
 
       if (isBlock) {
-        // 块级元素边界：先 flush，再输出标签本身（不被 span 包裹）
-        flush(i);
         result += tag;
-        sentenceStart = endIdx + 1;
       }
-      // 行内元素：不 flush，继续累积（标签会被包含在后续 seg 中，由 balanceTags 修复）
       i = endIdx + 1;
     } else {
+      if (sentenceStart === null) {
+        sentenceStart = i;
+      }
       var ch = html[i];
       if (endingsSet[ch]) {
         var endPos = i + 1;
@@ -451,7 +446,7 @@ export function wrapTtsSentences(html) {
     }
   }
 
-  if (sentenceStart < len) {
+  if (sentenceStart !== null) {
     flush(len);
   }
 
