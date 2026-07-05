@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=1.3.2';
+import { IDENTITY_REPLY } from './config.js?v=1.3.4';
  
 // ================================================================
 // HTML 转义
@@ -231,7 +231,7 @@ export function renderContent(text) {
             }
           }
         } catch (e) {
-          result += '<code class="math-fallback">' + escapeHtml(p.content) + "</code>";
+          result += '<code class="math-fallback"' + dataAttr + '>' + escapeHtml(p.content) + "</code>";
         }
       }
   }
@@ -241,12 +241,15 @@ export function renderContent(text) {
     var block = codeBlocks[parseInt(idx, 10)];
     if (!block) return m;
     return (
-      '<pre class="code-block tts-sentence"><code>' +
+      '<pre class="code-block"><code>' +
       escapeHtml(block.code) +
       "</code></pre>"
     );
   });
- 
+
+  // 第 5 轮：统一切分句子并包裹 tts-sentence（确保公式、代码块等都被包含在句子中）
+  result = wrapTtsSentences(result);
+
   return result;
 }
  
@@ -437,8 +440,8 @@ export function wrapTtsSentences(html) {
         }
       }
 
-      if (isBlock) {
-        result += tag;
+      if (sentenceStart === null) {
+        sentenceStart = i;
       }
       i = endIdx + 1;
     } else {
@@ -566,9 +569,6 @@ export function renderText(text) {
   html = html.replace(/\x02TABLE(\d+)\x02/g, function (m, idx) {
     return tables[parseInt(idx, 10)] || "";
   });
-
-  // 句子级 TTS 高亮包裹
-  html = wrapTtsSentences(html);
 
   return html;
 }

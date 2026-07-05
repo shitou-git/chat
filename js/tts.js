@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.3.2';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.2';
+import { CONFIG } from './config.js?v=1.3.4';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.4';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
