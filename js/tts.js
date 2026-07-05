@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.2.9';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.2.9';
+import { CONFIG } from './config.js?v=1.3.0';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.0';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -36,6 +36,33 @@ function countPronouncedChars(str) {
   return count;
 }
 
+/** 从 DOM 元素计算有效字数（优先使用 data-tts-chars，确保与 TTS 纯文本侧字数一致） */
+function countPronouncedCharsFromEl(el) {
+  if (!el) return 0;
+  var total = 0;
+
+  function walk(node) {
+    if (node.nodeType === 3) {
+      total += countPronouncedChars(node.nodeValue || '');
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    var elNode = node;
+    var ttsChars = elNode.getAttribute && elNode.getAttribute('data-tts-chars');
+    if (ttsChars !== null && !isNaN(Number(ttsChars))) {
+      total += Number(ttsChars);
+      return;
+    }
+    var children = node.childNodes;
+    for (var i = 0; i < children.length; i++) {
+      walk(children[i]);
+    }
+  }
+
+  walk(el);
+  return total;
+}
+
 /** 计算并缓存每个 TTS 句子的有效字数累计信息
  *  返回 { cumulative: [0, len1, len1+len2, ...], total: 总有效字数 }
  *  缓存键为当前 bubble 引用 + 句子数量，bubble 不变时复用，避免每帧重复遍历 DOM */
@@ -48,7 +75,7 @@ function getCharInfo(sentences) {
   var cumulative = [0];
   var total = 0;
   for (var i = 0; i < sentences.length; i++) {
-    var len = countPronouncedChars(sentences[i].textContent || '');
+    var len = countPronouncedCharsFromEl(sentences[i]);
     if (len < 1) len = 1;
     total += len;
     cumulative.push(total);
@@ -970,10 +997,11 @@ export function speakViaWebSpeech(plainText, btnEl) {
 
   // 预计算每句有效发音字数累计，用于按字数加权定位高亮（与 worker 路径保持一致）
   // 只统计中文/英文/数字，过滤标点符号，避免大量符号的句子加权虚胖
+  // 公式等特殊元素优先使用 data-tts-chars，确保与 TTS 纯文本侧字数一致
   var wsCumulative = [0];
   var wsTotalChars = 0;
   for (var wi = 0; wi < wsSentences.length; wi++) {
-    var wlen = countPronouncedChars(wsSentences[wi].textContent || '');
+    var wlen = countPronouncedCharsFromEl(wsSentences[wi]);
     if (wlen < 1) wlen = 1;
     wsTotalChars += wlen;
     wsCumulative.push(wsTotalChars);

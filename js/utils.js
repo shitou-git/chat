@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=1.2.9';
+import { IDENTITY_REPLY } from './config.js?v=1.3.0';
  
 // ================================================================
 // HTML 转义
@@ -196,8 +196,24 @@ export function renderContent(text) {
       result += renderText(textContent);
     } else {
         try {
+          var speakable = latexToSpeakable(p.content);
+          var ttsChars = 0;
+          for (var ci = 0; ci < speakable.length; ci++) {
+            var cc = speakable.charCodeAt(ci);
+            if ((cc >= 0x4E00 && cc <= 0x9FFF) ||
+                (cc >= 0x3400 && cc <= 0x4DBF) ||
+                (cc >= 65 && cc <= 90) ||
+                (cc >= 97 && cc <= 122) ||
+                (cc >= 48 && cc <= 57) ||
+                (cc >= 0xFF10 && cc <= 0xFF19) ||
+                (cc >= 0xFF21 && cc <= 0xFF3A) ||
+                (cc >= 0xFF41 && cc <= 0xFF5A)) {
+              ttsChars++;
+            }
+          }
+          var dataAttr = ' data-tts-chars="' + ttsChars + '"';
           if (typeof katex === "undefined") {
-            result += '<code class="math-fallback tts-sentence">' + escapeHtml(p.content) + "</code>";
+            result += '<code class="math-fallback"' + dataAttr + '>' + escapeHtml(p.content) + "</code>";
           } else {
             var html = katex.renderToString(p.content, {
               throwOnError: false,
@@ -209,13 +225,13 @@ export function renderContent(text) {
               }
             });
             if (p.type === "block") {
-              result += '<div class="katex-block tts-sentence">' + html + "</div>";
+              result += '<div class="katex-block"' + dataAttr + '>' + html + "</div>";
             } else {
-              result += html;
+              result += '<span class="katex-inline"' + dataAttr + '>' + html + "</span>";
             }
           }
         } catch (e) {
-          result += '<code class="math-fallback tts-sentence">' + escapeHtml(p.content) + "</code>";
+          result += '<code class="math-fallback">' + escapeHtml(p.content) + "</code>";
         }
       }
   }
