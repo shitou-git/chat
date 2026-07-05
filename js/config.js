@@ -6,7 +6,7 @@
 export const CONFIG = {
   /** 应用版本号（十进制递增，如 1.1.6 → 1.1.7 → 1.1.8）
    *  每次修改都需同步更新此版本号及所有 ?v=xx 引用和 sw.js 缓存版本 */
-  APP_VERSION: "1.3.4",
+  APP_VERSION: "1.3.5",
 
   /** 应用名称 */
   APP_NAME: "灵知",
@@ -55,9 +55,9 @@ export const CONFIG = {
    *  TTS_HIGHLIGHT_DELAY: 高亮时间偏移（秒）。
    *    - 正值：高亮滞后于声音（声音先到，高亮后到）
    *    - 负值：高亮超前于声音（高亮先到，声音后到）
-   *    - 默认 0，根据实际体验调整
+   *    - 默认 -0.2，高亮略微提前切换，消除人耳感知的滞后
    */
-  TTS_HIGHLIGHT_DELAY: 0,
+  TTS_HIGHLIGHT_DELAY: -0.2,
   TTS_DEBUG: false,
 };
 

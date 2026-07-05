@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.3.4';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.4';
+import { CONFIG } from './config.js?v=1.3.5';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.5';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -558,6 +558,7 @@ function startHighlightSyncLoop() {
     var timeRanges = _streamTTS.segmentTimeRanges;
     var segRanges = _streamTTS.segmentSentenceRanges;
     var totalSegs = _streamTTS.totalSegments;
+    var delay = CONFIG.TTS_HIGHLIGHT_DELAY || 0;
 
     var targetSentenceIdx = -1;
 
@@ -603,9 +604,14 @@ function startHighlightSyncLoop() {
       if (segStartDomIdx > segEndDomIdx) segStartDomIdx = segEndDomIdx;
 
       // 4. 段内按时间比例线性插值（不用字数加权，避免公式字数密度不同导致的偏差）
+      var segDuration = timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0
+        ? timeRanges[currentIdx].duration
+        : 0;
+      var adjustedSegTime = currentTime - delay;
+      if (adjustedSegTime < 0) adjustedSegTime = 0;
       var curSegProgress = 0;
-      if (timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0) {
-        curSegProgress = currentTime / timeRanges[currentIdx].duration;
+      if (segDuration > 0) {
+        curSegProgress = adjustedSegTime / segDuration;
       } else {
         curSegProgress = 0.5;
       }
@@ -637,7 +643,6 @@ function startHighlightSyncLoop() {
       var globalProgress = currentTotalTime / Math.max(0.1, estimatedTotalDuration);
       globalProgress = Math.max(0, Math.min(0.999, globalProgress));
 
-      var delay = CONFIG.TTS_HIGHLIGHT_DELAY || 0;
       if (delay !== 0) {
         var adjustedTime = currentTotalTime - delay;
         if (adjustedTime < 0) adjustedTime = 0;
