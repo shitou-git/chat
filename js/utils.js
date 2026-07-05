@@ -4,7 +4,7 @@
  * 包含 HTML 转义、LaTeX 处理、Markdown 渲染、文本处理等工具函数
  */
  
-import { IDENTITY_REPLY } from './config.js?v=1.2.6';
+import { IDENTITY_REPLY } from './config.js?v=1.2.7';
  
 // ================================================================
 // HTML 转义
@@ -273,7 +273,7 @@ export function renderContentLight(text) {
  *  统一使用固定结束符 。？！ 进行切分，与 wrapTtsSentences 保持一致 */
 export function splitIntoSentences(text) {
   if (!text) return [];
-  var sentenceEndings = ['。', '！', '？', '!', '?'];
+  var sentenceEndings = ['。', '！', '？', '，', '：', '!', '?', ',', ':'];
 
   function isEnding(ch) {
     for (var j = 0; j < sentenceEndings.length; j++) {
@@ -312,7 +312,7 @@ export function splitIntoSentences(text) {
 export function wrapTtsSentences(html) {
   if (!html) return '';
 
-  var sentenceEndings = ['。', '！', '？', '!', '?'];
+  var sentenceEndings = ['。', '！', '？', '，', '：', '!', '?', ',', ':'];
   var endingsSet = {};
   for (var e = 0; e < sentenceEndings.length; e++) endingsSet[sentenceEndings[e]] = true;
 
