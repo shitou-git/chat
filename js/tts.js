@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.3.1';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.1';
+import { CONFIG } from './config.js?v=1.3.2';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.2';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -561,20 +561,48 @@ function startHighlightSyncLoop() {
 
     var targetSentenceIdx = -1;
 
-    // 段级精确计算：基于已读有效字数定位高亮位置
-    // TTS 侧和 DOM 侧都用 countPronouncedChars 统计有效字数，确保两边一致
+    // 段级精确计算：段间用字数定位（保证对齐），段内用时间比例线性插值（避免公式字数干扰）
     if (segRanges && segRanges.length > 0 && currentIdx < segRanges.length) {
-      // 1. 累加已播放完的所有段的有效字数
-      var totalPlayedChars = 0;
+      // 1. 计算段首对应的 DOM 句子索引（用已播放完段的总字数定位）
+      var charsBeforeSeg = 0;
       for (var si = 0; si < currentIdx; si++) {
         if (segRanges[si] && segRanges[si].charCounts) {
           for (var ci = 0; ci < segRanges[si].charCounts.length; ci++) {
-            totalPlayedChars += segRanges[si].charCounts[ci];
+            charsBeforeSeg += segRanges[si].charCounts[ci];
           }
         }
       }
 
-      // 2. 当前段内按时间比例估算已读字数
+      // 2. 计算段尾对应的 DOM 句子索引（用当前段总字数定位）
+      var curSegCharCounts = segRanges[currentIdx] && segRanges[currentIdx].charCounts ? segRanges[currentIdx].charCounts : [];
+      var curSegTotalChars = 0;
+      for (var cj = 0; cj < curSegCharCounts.length; cj++) {
+        curSegTotalChars += curSegCharCounts[cj];
+      }
+      var charsAtSegEnd = charsBeforeSeg + curSegTotalChars;
+
+      // 3. 在 DOM 句子中查找段首和段尾对应的句子索引
+      var charInfo = getCharInfo(sentences);
+      var segStartDomIdx = 0;
+      var segEndDomIdx = sentences.length - 1;
+      for (var di = 0; di < charInfo.cumulative.length - 1; di++) {
+        if (charsBeforeSeg < charInfo.cumulative[di + 1]) {
+          segStartDomIdx = di;
+          break;
+        }
+        segStartDomIdx = di;
+      }
+      for (var dj = 0; dj < charInfo.cumulative.length - 1; dj++) {
+        if (charsAtSegEnd < charInfo.cumulative[dj + 1]) {
+          segEndDomIdx = dj;
+          break;
+        }
+        segEndDomIdx = dj;
+      }
+      if (segEndDomIdx >= sentences.length) segEndDomIdx = sentences.length - 1;
+      if (segStartDomIdx > segEndDomIdx) segStartDomIdx = segEndDomIdx;
+
+      // 4. 段内按时间比例线性插值（不用字数加权，避免公式字数密度不同导致的偏差）
       var curSegProgress = 0;
       if (timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0) {
         curSegProgress = currentTime / timeRanges[currentIdx].duration;
@@ -583,27 +611,8 @@ function startHighlightSyncLoop() {
       }
       curSegProgress = Math.max(0, Math.min(0.999, curSegProgress));
 
-      // 3. 当前段内按字数加权计算已读字数
-      var curSegCharCounts = segRanges[currentIdx] && segRanges[currentIdx].charCounts ? segRanges[currentIdx].charCounts : [];
-      var curSegTotalChars = 0;
-      for (var cj = 0; cj < curSegCharCounts.length; cj++) {
-        curSegTotalChars += curSegCharCounts[cj];
-      }
-      var curSegPlayedChars = curSegProgress * curSegTotalChars;
-      totalPlayedChars += curSegPlayedChars;
-
-      // 4. 用总已读字数在 DOM 句子中查找对应的句子（两边都是有效字数，直接对比即可）
-      var charInfo = getCharInfo(sentences);
-      var targetCharPos = totalPlayedChars;
-      for (var di = 0; di < charInfo.cumulative.length - 1; di++) {
-        if (targetCharPos < charInfo.cumulative[di + 1]) {
-          targetSentenceIdx = di;
-          break;
-        }
-      }
-      if (targetSentenceIdx < 0) {
-        targetSentenceIdx = sentences.length - 1;
-      }
+      var segSpan = segEndDomIdx - segStartDomIdx;
+      targetSentenceIdx = Math.round(segStartDomIdx + segSpan * curSegProgress);
     }
 
     // Fallback：全局进度比例 + 字数加权
