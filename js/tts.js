@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.2.7';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.2.7';
+import { CONFIG } from './config.js?v=1.2.8';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.2.8';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -527,48 +527,101 @@ function startHighlightSyncLoop() {
     var currentTime = audioEl.currentTime || 0;
     var currentIdx = _streamTTS.currentPlayIndex;
     var timeRanges = _streamTTS.segmentTimeRanges;
+    var segRanges = _streamTTS.segmentSentenceRanges;
     var totalSegs = _streamTTS.totalSegments;
 
-    var playedDuration = 0;
-    if (timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length) {
-      playedDuration = timeRanges[currentIdx].start || 0;
-    } else {
-      var estimatedSegDuration = 3;
-      if (timeRanges && timeRanges.length > 0) {
-        var sum = 0;
-        for (var k = 0; k < timeRanges.length; k++) {
-          sum += timeRanges[k].duration || 0;
+    var targetSentenceIdx = -1;
+
+    // 段级精确计算：利用 segmentSentenceRanges 直接定位当前读到哪个句子
+    // 不依赖总时长估算，比全局进度比例更准确
+    if (segRanges && segRanges.length > 0 && currentIdx < segRanges.length) {
+      // 1. 累加已播放完的段包含的句子数
+      var playedSentences = 0;
+      var playedChars = 0;
+      for (var si = 0; si < currentIdx; si++) {
+        if (segRanges[si] && segRanges[si].charCounts) {
+          for (var ci = 0; ci < segRanges[si].charCounts.length; ci++) {
+            playedChars += segRanges[si].charCounts[ci];
+          }
+          playedSentences += segRanges[si].charCounts.length;
         }
-        estimatedSegDuration = sum / timeRanges.length;
       }
-      playedDuration = currentIdx * estimatedSegDuration;
+
+      // 2. 当前段内按时间比例估算进度
+      var curSegProgress = 0;
+      var curSegDuration = 0;
+      if (timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0) {
+        curSegDuration = timeRanges[currentIdx].duration;
+        curSegProgress = currentTime / curSegDuration;
+      } else {
+        curSegProgress = 0.5;
+      }
+      curSegProgress = Math.max(0, Math.min(0.999, curSegProgress));
+
+      // 3. 当前段内按字数加权计算读到第几个字
+      var curSegCharCounts = segRanges[currentIdx] && segRanges[currentIdx].charCounts ? segRanges[currentIdx].charCounts : [];
+      var curSegTotalChars = 0;
+      for (var cj = 0; cj < curSegCharCounts.length; cj++) {
+        curSegTotalChars += curSegCharCounts[cj];
+      }
+      var curSegTargetChars = curSegProgress * curSegTotalChars;
+      var curSegSentenceOffset = 0;
+      var curAccum = 0;
+      for (var sk = 0; sk < curSegCharCounts.length; sk++) {
+        if (curSegTargetChars < curAccum + curSegCharCounts[sk]) {
+          curSegSentenceOffset = sk;
+          break;
+        }
+        curAccum += curSegCharCounts[sk];
+        curSegSentenceOffset = sk;
+      }
+      if (curSegSentenceOffset >= curSegCharCounts.length) {
+        curSegSentenceOffset = curSegCharCounts.length - 1;
+      }
+
+      targetSentenceIdx = playedSentences + curSegSentenceOffset;
     }
 
-    var currentTotalTime = playedDuration + currentTime;
-    var estimatedTotalDuration = estimateRemainingDuration();
-    var globalProgress = currentTotalTime / Math.max(0.1, estimatedTotalDuration);
-    globalProgress = Math.max(0, Math.min(0.999, globalProgress));
+    // Fallback：全局进度比例 + 字数加权（DOM 句子数与文本句子数不一致时兜底）
+    if (targetSentenceIdx < 0 || targetSentenceIdx >= sentences.length) {
+      var playedDuration = 0;
+      if (timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length) {
+        playedDuration = timeRanges[currentIdx].start || 0;
+      } else {
+        var estimatedSegDuration = 3;
+        if (timeRanges && timeRanges.length > 0) {
+          var sum2 = 0;
+          for (var k2 = 0; k2 < timeRanges.length; k2++) {
+            sum2 += timeRanges[k2].duration || 0;
+          }
+          estimatedSegDuration = sum2 / timeRanges.length;
+        }
+        playedDuration = currentIdx * estimatedSegDuration;
+      }
 
-    var delay = CONFIG.TTS_HIGHLIGHT_DELAY || 0;
-    if (delay > 0) {
-      var adjustedTime = currentTotalTime - delay;
-      if (adjustedTime < 0) adjustedTime = 0;
-      globalProgress = adjustedTime / Math.max(0.1, estimatedTotalDuration);
+      var currentTotalTime = playedDuration + currentTime;
+      var estimatedTotalDuration = estimateRemainingDuration();
+      var globalProgress = currentTotalTime / Math.max(0.1, estimatedTotalDuration);
       globalProgress = Math.max(0, Math.min(0.999, globalProgress));
+
+      var delay = CONFIG.TTS_HIGHLIGHT_DELAY || 0;
+      if (delay !== 0) {
+        var adjustedTime = currentTotalTime - delay;
+        if (adjustedTime < 0) adjustedTime = 0;
+        globalProgress = adjustedTime / Math.max(0.1, estimatedTotalDuration);
+        globalProgress = Math.max(0, Math.min(0.999, globalProgress));
+      }
+
+      targetSentenceIdx = getTargetSentenceByCharProgress(sentences, globalProgress);
     }
 
-    var targetSentenceIdx = getTargetSentenceByCharProgress(sentences, globalProgress);
-
+    targetSentenceIdx = Math.max(0, Math.min(sentences.length - 1, targetSentenceIdx));
     applyHighlight(sentences, targetSentenceIdx);
 
     if (CONFIG.TTS_DEBUG) {
       console.log('[TTS-Highlight]', {
         segIdx: currentIdx + '/' + totalSegs,
         audioTime: currentTime.toFixed(3) + 's',
-        playedDuration: playedDuration.toFixed(2) + 's',
-        currentTotalTime: currentTotalTime.toFixed(2) + 's',
-        estimatedTotal: estimatedTotalDuration.toFixed(2) + 's',
-        globalProgress: (globalProgress * 100).toFixed(1) + '%',
         targetSentence: targetSentenceIdx + '/' + sentences.length
       });
     }
