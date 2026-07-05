@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.3.5';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.5';
+import { CONFIG } from './config.js?v=1.3.6';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.6';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -603,7 +603,9 @@ function startHighlightSyncLoop() {
       if (segEndDomIdx >= sentences.length) segEndDomIdx = sentences.length - 1;
       if (segStartDomIdx > segEndDomIdx) segStartDomIdx = segEndDomIdx;
 
-      // 4. 段内按时间比例线性插值（不用字数加权，避免公式字数密度不同导致的偏差）
+      // 4. 段内按"时间→字数→句子索引"映射（字数加权）
+      // 时间插值在短句（标题）处会滞后（假设每句等时），字数加权更贴合实际朗读时间
+      // 公式已有 data-tts-chars 修正，字数与朗读时间成正比
       var segDuration = timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0
         ? timeRanges[currentIdx].duration
         : 0;
@@ -617,8 +619,16 @@ function startHighlightSyncLoop() {
       }
       curSegProgress = Math.max(0, Math.min(0.999, curSegProgress));
 
-      var segSpan = segEndDomIdx - segStartDomIdx;
-      targetSentenceIdx = Math.round(segStartDomIdx + segSpan * curSegProgress);
+      // 用时间进度推算已播放字数位置，在段内句子中按字数查找
+      var targetCharPos = charsBeforeSeg + curSegProgress * curSegTotalChars;
+      targetSentenceIdx = segStartDomIdx;
+      for (var di2 = segStartDomIdx; di2 <= segEndDomIdx; di2++) {
+        if (targetCharPos < charInfo.cumulative[di2 + 1]) {
+          targetSentenceIdx = di2;
+          break;
+        }
+        targetSentenceIdx = di2;
+      }
     }
 
     // Fallback：全局进度比例 + 字数加权
