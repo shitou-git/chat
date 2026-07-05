@@ -3,8 +3,8 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=1.3.0';
-import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.0';
+import { CONFIG } from './config.js?v=1.3.1';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.1';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
@@ -451,7 +451,9 @@ export function splitTextIntoSentenceSegments(text) {
 
   for (var i = 0; i < sentences.length; i++) {
     var sent = sentences[i];
-    sentenceCharCounts.push(sent.length);
+    var sentChars = countPronouncedChars(sent);
+    if (sentChars < 1) sentChars = 1;
+    sentenceCharCounts.push(sentChars);
     var newLen = currentText.length + sent.length;
 
     if (currentText.length > 0 && newLen > MAX_SEG_LEN) {
@@ -459,10 +461,10 @@ export function splitTextIntoSentenceSegments(text) {
       sentenceRanges.push({ start: startSentenceIdx, end: i - 1, charCounts: segCharCounts.slice(), totalChars: currentText.length });
       currentText = sent;
       startSentenceIdx = i;
-      segCharCounts = [sent.length];
+      segCharCounts = [sentChars];
     } else {
       currentText += sent;
-      segCharCounts.push(sent.length);
+      segCharCounts.push(sentChars);
       if (currentText.length >= MIN_SEG_LEN && sentences.length - i > 1) {
         segments.push(currentText);
         sentenceRanges.push({ start: startSentenceIdx, end: i, charCounts: segCharCounts.slice(), totalChars: currentText.length });
@@ -559,58 +561,53 @@ function startHighlightSyncLoop() {
 
     var targetSentenceIdx = -1;
 
-    // 段级精确计算：利用 segmentSentenceRanges 直接定位当前读到哪个句子
-    // 不依赖总时长估算，比全局进度比例更准确
+    // 段级精确计算：基于已读有效字数定位高亮位置
+    // TTS 侧和 DOM 侧都用 countPronouncedChars 统计有效字数，确保两边一致
     if (segRanges && segRanges.length > 0 && currentIdx < segRanges.length) {
-      // 1. 累加已播放完的段包含的句子数
-      var playedSentences = 0;
-      var playedChars = 0;
+      // 1. 累加已播放完的所有段的有效字数
+      var totalPlayedChars = 0;
       for (var si = 0; si < currentIdx; si++) {
         if (segRanges[si] && segRanges[si].charCounts) {
           for (var ci = 0; ci < segRanges[si].charCounts.length; ci++) {
-            playedChars += segRanges[si].charCounts[ci];
+            totalPlayedChars += segRanges[si].charCounts[ci];
           }
-          playedSentences += segRanges[si].charCounts.length;
         }
       }
 
-      // 2. 当前段内按时间比例估算进度
+      // 2. 当前段内按时间比例估算已读字数
       var curSegProgress = 0;
-      var curSegDuration = 0;
       if (timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0) {
-        curSegDuration = timeRanges[currentIdx].duration;
-        curSegProgress = currentTime / curSegDuration;
+        curSegProgress = currentTime / timeRanges[currentIdx].duration;
       } else {
         curSegProgress = 0.5;
       }
       curSegProgress = Math.max(0, Math.min(0.999, curSegProgress));
 
-      // 3. 当前段内按字数加权计算读到第几个字
+      // 3. 当前段内按字数加权计算已读字数
       var curSegCharCounts = segRanges[currentIdx] && segRanges[currentIdx].charCounts ? segRanges[currentIdx].charCounts : [];
       var curSegTotalChars = 0;
       for (var cj = 0; cj < curSegCharCounts.length; cj++) {
         curSegTotalChars += curSegCharCounts[cj];
       }
-      var curSegTargetChars = curSegProgress * curSegTotalChars;
-      var curSegSentenceOffset = 0;
-      var curAccum = 0;
-      for (var sk = 0; sk < curSegCharCounts.length; sk++) {
-        if (curSegTargetChars < curAccum + curSegCharCounts[sk]) {
-          curSegSentenceOffset = sk;
+      var curSegPlayedChars = curSegProgress * curSegTotalChars;
+      totalPlayedChars += curSegPlayedChars;
+
+      // 4. 用总已读字数在 DOM 句子中查找对应的句子（两边都是有效字数，直接对比即可）
+      var charInfo = getCharInfo(sentences);
+      var targetCharPos = totalPlayedChars;
+      for (var di = 0; di < charInfo.cumulative.length - 1; di++) {
+        if (targetCharPos < charInfo.cumulative[di + 1]) {
+          targetSentenceIdx = di;
           break;
         }
-        curAccum += curSegCharCounts[sk];
-        curSegSentenceOffset = sk;
       }
-      if (curSegSentenceOffset >= curSegCharCounts.length) {
-        curSegSentenceOffset = curSegCharCounts.length - 1;
+      if (targetSentenceIdx < 0) {
+        targetSentenceIdx = sentences.length - 1;
       }
-
-      targetSentenceIdx = playedSentences + curSegSentenceOffset;
     }
 
-    // Fallback：全局进度比例 + 字数加权（DOM 句子数与文本句子数不一致时兜底）
-    if (targetSentenceIdx < 0 || targetSentenceIdx >= sentences.length) {
+    // Fallback：全局进度比例 + 字数加权
+    if (targetSentenceIdx < 0) {
       var playedDuration = 0;
       if (timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length) {
         playedDuration = timeRanges[currentIdx].start || 0;

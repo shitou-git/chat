@@ -1,6 +1,6 @@
 
 
-import { CONFIG } from './config.js?v=1.3.0';
+import { CONFIG } from './config.js?v=1.3.1';
  
 var _currentUser = null;
 var _token = null;
