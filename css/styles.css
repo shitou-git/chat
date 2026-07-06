@@ -1197,73 +1197,27 @@ body.is-dark .followup-item:hover {
   color: var(--c-text);
   font-weight: 500;
 }
-.settings-voice-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.settings-voice-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.settings-voice-select {
+  width: 100%;
   padding: 10px 14px;
   background: var(--c-bg);
-  border-radius: 12px;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
-  font-family: inherit;
-  font-size: 0.95rem;
   color: var(--c-text);
-  text-align: left;
-  width: 100%;
-}
-.settings-voice-item:hover {
-  background: var(--c-surface-hover, rgba(139,92,246,0.06));
-}
-.settings-voice-item.selected {
-  border-color: var(--c-primary);
-  background: rgba(139, 92, 246, 0.08);
-}
-.settings-voice-radio {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--c-muted);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  border: 1px solid var(--c-border, rgba(139,92,246,0.2));
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238b5cf6' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
   transition: border-color 0.2s;
 }
-.settings-voice-item.selected .settings-voice-radio {
+.settings-voice-select:focus {
+  outline: none;
   border-color: var(--c-primary);
-}
-.settings-voice-radio::after {
-  content: '';
-  width: 8px;
-  height: 8px;
-  background: var(--c-primary);
-  border-radius: 50%;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-.settings-voice-item.selected .settings-voice-radio::after {
-  opacity: 1;
-}
-.settings-voice-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.settings-voice-name {
-  font-weight: 500;
-  color: var(--c-text);
-}
-.settings-voice-tag {
-  font-size: 0.8rem;
-  color: var(--c-muted);
 }
 
 /* ========== 登录/注册弹窗 ========== */

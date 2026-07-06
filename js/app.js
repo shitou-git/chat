@@ -55,7 +55,6 @@ import {
   isLoggedIn,
   currentUser
 } from './auth.js?v=1.3.7';
-import { escapeHtml } from './utils.js?v=1.3.7';
  
 // ================================================================
 // 事件绑定
@@ -511,30 +510,20 @@ function setupAuth() {
   }
 
   function renderVoiceList() {
-    var listEl = document.getElementById('settingsVoiceList');
-    if (!listEl || !CONFIG.TTS_VOICES) return;
+    var selectEl = document.getElementById('settingsVoiceSelect');
+    if (!selectEl || !CONFIG.TTS_VOICES) return;
     var savedVoice = localStorage.getItem('tts_voice') || CONFIG.TTS_DEFAULT_VOICE;
-    listEl.innerHTML = '';
+    selectEl.innerHTML = '';
     CONFIG.TTS_VOICES.forEach(function (voice) {
-      var item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'settings-voice-item' + (voice.id === savedVoice ? ' selected' : '');
-      item.innerHTML =
-        '<span class="settings-voice-radio"></span>' +
-        '<span class="settings-voice-info">' +
-          '<span class="settings-voice-name">' + escapeHtml(voice.name) + '</span>' +
-          '<span class="settings-voice-tag">' + escapeHtml(voice.emotion) + '</span>' +
-        '</span>';
-      item.addEventListener('click', function () {
-        localStorage.setItem('tts_voice', voice.id);
-        // 更新选中状态
-        listEl.querySelectorAll('.settings-voice-item').forEach(function (el) {
-          el.classList.remove('selected');
-        });
-        item.classList.add('selected');
-      });
-      listEl.appendChild(item);
+      var opt = document.createElement('option');
+      opt.value = voice.id;
+      opt.textContent = voice.name + '（' + voice.emotion + '）';
+      if (voice.id === savedVoice) opt.selected = true;
+      selectEl.appendChild(opt);
     });
+    selectEl.onchange = function () {
+      localStorage.setItem('tts_voice', selectEl.value);
+    };
   }
 
   if (settingsBtn) {
