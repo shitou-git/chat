@@ -4,19 +4,6 @@
  */
 
 export const CONFIG = {
-  /** 应用版本号（十进制递增，如 1.1.6 → 1.1.7 → 1.1.8）
-   *  每次修改都需同步更新此版本号及所有 ?v=xx 引用和 sw.js 缓存版本 */
-  APP_VERSION: "1.3.6",
-
-  /** 应用名称 */
-  APP_NAME: "灵知",
-
-  /** 应用简介 */
-  APP_DESCRIPTION: "基于大语言模型的智能对话助手，支持数学公式渲染、语音播报、多会话管理等功能。",
-
-  /** 开发者 */
-  APP_DEVELOPER: "Stone",
-
   /** 聊天 API 代理地址（Cloudflare Worker） */
   API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
 
@@ -36,10 +23,8 @@ export const CONFIG = {
   USER_KEY: "lingzhi_user",
   GUEST_MSG_KEY: "lingzhi_guest_msg_count",
 
-  /** 模型配置（API 调用使用） */
+  /** 模型配置 */
   MODEL: "agnes-2.0-flash",
-  /** 模型显示名称（关于弹窗展示） */
-  MODEL_DISPLAY: "Powered by Sapiens AI",
   MAX_TOKENS: 2048,
   TEMPERATURE: 0.3,
 
@@ -51,14 +36,16 @@ export const CONFIG = {
   MAX_TEXTAREA_HEIGHT: 120,
   KATEX_WAIT_TIMEOUT: 5000,
 
-  /** TTS 高亮同步配置
-   *  TTS_HIGHLIGHT_DELAY: 高亮时间偏移（秒）。
-   *    - 正值：高亮滞后于声音（声音先到，高亮后到）
-   *    - 负值：高亮超前于声音（高亮先到，声音后到）
-   *    - 默认 -0.2，高亮略微提前切换，消除人耳感知的滞后
-   */
-  TTS_HIGHLIGHT_DELAY: -0.2,
-  TTS_DEBUG: false,
+  /** TTS 语音配置 */
+  TTS_VOICES: [
+    { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓', emotion: '活泼', rate: 0, pitch: 0 },
+    { id: 'zh-CN-YunxiNeural', name: '云希', emotion: '中性', rate: 0, pitch: 0 },
+    { id: 'zh-CN-YunyangNeural', name: '云扬', emotion: '沉稳', rate: 0, pitch: 0 },
+    { id: 'zh-CN-XiaoyiNeural', name: '晓伊', emotion: '温柔', rate: 0, pitch: 0 },
+    { id: 'zh-CN-YunjianNeural', name: '云健', emotion: '有力', rate: 0, pitch: 0 },
+    { id: 'zh-CN-XiaohanNeural', name: '晓涵', emotion: '亲切', rate: 0, pitch: 0 },
+  ],
+  TTS_DEFAULT_VOICE: 'zh-CN-XiaoxiaoNeural',
 };
 
 /** 系统提示词 */
