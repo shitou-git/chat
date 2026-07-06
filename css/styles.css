@@ -1161,6 +1161,111 @@ body.is-dark .followup-item:hover {
 .about-ok-btn:hover { opacity: 0.9; }
 .about-ok-btn:active { transform: scale(0.98); }
 
+/* ========== 设置弹窗 ========== */
+.settings-modal {
+  max-width: 380px;
+  text-align: left;
+}
+.settings-section {
+  margin-bottom: 20px;
+}
+.settings-section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  padding-left: 4px;
+}
+.settings-info {
+  background: var(--c-bg);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.settings-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 0.9rem;
+}
+.settings-info-label {
+  color: var(--c-muted);
+}
+.settings-info-value {
+  color: var(--c-text);
+  font-weight: 500;
+}
+.settings-voice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-voice-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--c-bg);
+  border-radius: 12px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--c-text);
+  text-align: left;
+  width: 100%;
+}
+.settings-voice-item:hover {
+  background: var(--c-surface-hover, rgba(139,92,246,0.06));
+}
+.settings-voice-item.selected {
+  border-color: var(--c-primary);
+  background: rgba(139, 92, 246, 0.08);
+}
+.settings-voice-radio {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--c-muted);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.2s;
+}
+.settings-voice-item.selected .settings-voice-radio {
+  border-color: var(--c-primary);
+}
+.settings-voice-radio::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--c-primary);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.settings-voice-item.selected .settings-voice-radio::after {
+  opacity: 1;
+}
+.settings-voice-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-voice-name {
+  font-weight: 500;
+  color: var(--c-text);
+}
+.settings-voice-tag {
+  font-size: 0.8rem;
+  color: var(--c-muted);
+}
+
 /* ========== 登录/注册弹窗 ========== */
 .auth-overlay {
   position: fixed;

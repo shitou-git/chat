@@ -3,12 +3,21 @@
  * 包含流式 TTS、Web Speech API、Toast 提示等功能
  */
  
-import { CONFIG } from './config.js?v=57';
-import { stripMarkdown } from './utils.js?v=57';
+import { CONFIG } from './config.js?v=1.3.7';
+import { stripMarkdown } from './utils.js?v=1.3.7';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
 var _currentBubbleEl = null;
+
+/** 获取当前选中的 TTS 语音（优先用户设置，其次默认值） */
+export function getCurrentVoice() {
+  try {
+    var saved = localStorage.getItem('tts_voice');
+    if (saved) return saved;
+  } catch (e) {}
+  return CONFIG.TTS_DEFAULT_VOICE;
+}
 
 function getMessageBubble(btnEl) {
   if (!btnEl) return null;
@@ -375,7 +384,7 @@ function synthesizeSegmentWorker(text, index) {
         signal: ac.signal,
         body: JSON.stringify({
           text: text,
-          voice: CONFIG.TTS_DEFAULT_VOICE,
+          voice: getCurrentVoice(),
           rate: 0,
           pitch: 0,
           format: 'audio-24khz-48kbitrate-mono-mp3',

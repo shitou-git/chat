@@ -55,6 +55,7 @@ import {
   isLoggedIn,
   currentUser
 } from './auth.js?v=1.3.7';
+import { escapeHtml } from './utils.js?v=1.3.7';
  
 // ================================================================
 // 事件绑定
@@ -472,6 +473,86 @@ function setupAuth() {
   if (aboutOverlay) {
     aboutOverlay.addEventListener('click', function (e) {
       if (e.target === aboutOverlay) closeAboutModal();
+    });
+  }
+
+  // 设置按钮
+  var settingsBtn = document.getElementById('userMenuSettings');
+  var settingsOverlay = document.getElementById('settingsOverlay');
+  var settingsCloseBtn = document.getElementById('settingsCloseBtn');
+  var settingsOkBtn = document.getElementById('settingsOkBtn');
+
+  function openSettingsModal() {
+    if (!settingsOverlay) return;
+
+    // 填充账号信息
+    var loginStatusEl = document.getElementById('settingsLoginStatus');
+    var nicknameEl = document.getElementById('settingsNickname');
+    var emailEl = document.getElementById('settingsEmail');
+    var user = currentUser();
+    if (user) {
+      if (loginStatusEl) loginStatusEl.textContent = '已登录';
+      if (nicknameEl) nicknameEl.textContent = user.nickname || user.name || '-';
+      if (emailEl) emailEl.textContent = user.email || '-';
+    } else {
+      if (loginStatusEl) loginStatusEl.textContent = '未登录';
+      if (nicknameEl) nicknameEl.textContent = '-';
+      if (emailEl) emailEl.textContent = '-';
+    }
+
+    // 渲染语音列表
+    renderVoiceList();
+
+    settingsOverlay.classList.add('show');
+  }
+
+  function closeSettingsModal() {
+    if (settingsOverlay) settingsOverlay.classList.remove('show');
+  }
+
+  function renderVoiceList() {
+    var listEl = document.getElementById('settingsVoiceList');
+    if (!listEl || !CONFIG.TTS_VOICES) return;
+    var savedVoice = localStorage.getItem('tts_voice') || CONFIG.TTS_DEFAULT_VOICE;
+    listEl.innerHTML = '';
+    CONFIG.TTS_VOICES.forEach(function (voice) {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'settings-voice-item' + (voice.id === savedVoice ? ' selected' : '');
+      item.innerHTML =
+        '<span class="settings-voice-radio"></span>' +
+        '<span class="settings-voice-info">' +
+          '<span class="settings-voice-name">' + escapeHtml(voice.name) + '</span>' +
+          '<span class="settings-voice-tag">' + escapeHtml(voice.emotion) + '</span>' +
+        '</span>';
+      item.addEventListener('click', function () {
+        localStorage.setItem('tts_voice', voice.id);
+        // 更新选中状态
+        listEl.querySelectorAll('.settings-voice-item').forEach(function (el) {
+          el.classList.remove('selected');
+        });
+        item.classList.add('selected');
+      });
+      listEl.appendChild(item);
+    });
+  }
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      hideUserMenu();
+      openSettingsModal();
+    });
+  }
+  if (settingsCloseBtn) {
+    settingsCloseBtn.addEventListener('click', closeSettingsModal);
+  }
+  if (settingsOkBtn) {
+    settingsOkBtn.addEventListener('click', closeSettingsModal);
+  }
+  if (settingsOverlay) {
+    settingsOverlay.addEventListener('click', function (e) {
+      if (e.target === settingsOverlay) closeSettingsModal();
     });
   }
 

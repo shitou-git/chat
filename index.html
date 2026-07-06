@@ -148,6 +148,10 @@ aria-label="消息输入框"
 <span class="user-menu-icon">ℹ️</span>关于
 </button>
 <div class="user-menu-divider"></div>
+<button type="button" class="user-menu-item" id="userMenuSettings">
+<span class="user-menu-icon">⚙️</span>设置
+</button>
+<div class="user-menu-divider"></div>
 <button type="button" class="user-menu-item" id="userMenuImageGen">
 <span class="user-menu-icon">🎨</span>生图
 </button>
@@ -213,6 +217,57 @@ aria-label="消息输入框"
 </div>
 
 <button type="button" class="about-ok-btn" id="aboutOkBtn">知道了</button>
+
+</div>
+
+</div>
+
+
+<!-- 设置弹窗 -->
+
+<div class="about-overlay" id="settingsOverlay" role="alertdialog" aria-modal="true" aria-labelledby="settingsTitle">
+
+<div class="about-modal settings-modal">
+
+<button type="button" class="about-close" id="settingsCloseBtn" aria-label="关闭">×</button>
+
+<div class="about-title" id="settingsTitle">设置</div>
+
+<!-- 账号信息 -->
+
+<div class="settings-section">
+
+<div class="settings-section-title">账号信息</div>
+
+<div class="settings-info" id="settingsUserInfo">
+
+<div class="settings-info-row">
+<span class="settings-info-label">状态</span>
+<span class="settings-info-value" id="settingsLoginStatus">未登录</span>
+</div>
+<div class="settings-info-row">
+<span class="settings-info-label">昵称</span>
+<span class="settings-info-value" id="settingsNickname">-</span>
+</div>
+<div class="settings-info-row">
+<span class="settings-info-label">邮箱</span>
+<span class="settings-info-value" id="settingsEmail">-</span>
+</div>
+</div>
+
+</div>
+
+<!-- TTS 语音设置 -->
+
+<div class="settings-section">
+
+<div class="settings-section-title">朗读语音</div>
+
+<div class="settings-voice-list" id="settingsVoiceList"></div>
+
+</div>
+
+<button type="button" class="about-ok-btn" id="settingsOkBtn">知道了</button>
 
 </div>
 
