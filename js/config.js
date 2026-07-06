@@ -5,7 +5,7 @@
 
 export const CONFIG = {
   /** 应用版本号 */
-  APP_VERSION: "1.3.7",
+  APP_VERSION: "1.3.8",
   APP_NAME: "灵知",
   APP_DESCRIPTION: "基于大语言模型的智能对话助手，支持数学公式渲染、语音播报、多会话管理等功能。",
   MODEL_DISPLAY: "Powered by Sapiens AI",

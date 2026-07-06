@@ -6,7 +6,7 @@
  * - API 请求：仅网络，不缓存
  * ============================================================ */
  
-const CACHE_VERSION = "lingzhi-1.3.7";
+const CACHE_VERSION = "lingzhi-1.3.8";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
