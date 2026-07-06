@@ -4,11 +4,16 @@
  */
  
 import { CONFIG } from './config.js?v=1.3.8';
-import { stripMarkdown } from './utils.js?v=1.3.8';
+import { stripMarkdown, splitIntoSentences } from './utils.js?v=1.3.8';
 
 export var _currentSpeakBtn = null;
 export var _streamTTS = null;
 var _currentBubbleEl = null;
+var _highlightRAF = null;
+var _lastHighlightIdx = -1;
+
+// 句子字数信息缓存：按字数加权映射高亮，避免长短句不同步
+var _charInfoCache = null;
 
 /** 获取当前选中的 TTS 语音（优先用户设置，其次默认值） */
 export function getCurrentVoice() {
@@ -17,6 +22,95 @@ export function getCurrentVoice() {
     if (saved) return saved;
   } catch (e) {}
   return CONFIG.TTS_DEFAULT_VOICE;
+}
+
+/** 统计有效发音字符数（中文、英文、数字），过滤标点、符号、空白 */
+function countPronouncedChars(str) {
+  if (!str) return 0;
+  var count = 0;
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    if (c >= 0x4E00 && c <= 0x9FFF) { count++; continue; }
+    if (c >= 0x3400 && c <= 0x4DBF) { count++; continue; }
+    if (c >= 65 && c <= 90) { count++; continue; }
+    if (c >= 97 && c <= 122) { count++; continue; }
+    if (c >= 48 && c <= 57) { count++; continue; }
+    if (c >= 0xFF10 && c <= 0xFF19) { count++; continue; }
+    if (c >= 0xFF21 && c <= 0xFF3A) { count++; continue; }
+    if (c >= 0xFF41 && c <= 0xFF5A) { count++; continue; }
+  }
+  return count;
+}
+
+/** 从 DOM 元素计算有效字数（优先使用 data-tts-chars） */
+function countPronouncedCharsFromEl(el) {
+  if (!el) return 0;
+  var total = 0;
+
+  function walk(node) {
+    if (node.nodeType === 3) {
+      total += countPronouncedChars(node.nodeValue || '');
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    var elNode = node;
+    var ttsChars = elNode.getAttribute && elNode.getAttribute('data-tts-chars');
+    if (ttsChars !== null && !isNaN(Number(ttsChars))) {
+      total += Number(ttsChars);
+      return;
+    }
+    var children = node.childNodes;
+    for (var i = 0; i < children.length; i++) {
+      walk(children[i]);
+    }
+  }
+
+  walk(el);
+  return total;
+}
+
+/** 计算并缓存每个 TTS 句子的有效字数累计信息 */
+function getCharInfo(sentences) {
+  if (_charInfoCache &&
+      _charInfoCache.bubble === _currentBubbleEl &&
+      _charInfoCache.sentenceCount === sentences.length) {
+    return _charInfoCache;
+  }
+  var cumulative = [0];
+  var total = 0;
+  for (var i = 0; i < sentences.length; i++) {
+    var len = countPronouncedCharsFromEl(sentences[i]);
+    if (len < 1) len = 1;
+    total += len;
+    cumulative.push(total);
+  }
+  _charInfoCache = {
+    bubble: _currentBubbleEl,
+    sentenceCount: sentences.length,
+    cumulative: cumulative,
+    total: total
+  };
+  return _charInfoCache;
+}
+
+/** 根据全局进度（0~1）按字数加权定位目标句子索引 */
+function getTargetSentenceByCharProgress(sentences, globalProgress) {
+  if (sentences.length === 0) return -1;
+  if (sentences.length === 1) return 0;
+  var info = getCharInfo(sentences);
+  if (info.total <= 0) return 0;
+  var targetCharPos = globalProgress * info.total;
+  var idx = 0;
+  for (var i = 0; i < info.cumulative.length - 1; i++) {
+    if (targetCharPos < info.cumulative[i + 1]) {
+      idx = i;
+      break;
+    }
+    idx = i;
+  }
+  if (idx >= sentences.length) idx = sentences.length - 1;
+  if (idx < 0) idx = 0;
+  return idx;
 }
 
 function getMessageBubble(btnEl) {
@@ -35,6 +129,12 @@ function getTtsSentences(bubbleEl) {
 }
 
 function clearTtsHighlight() {
+  if (_highlightRAF) {
+    cancelAnimationFrame(_highlightRAF);
+    _highlightRAF = null;
+  }
+  _lastHighlightIdx = -1;
+  _charInfoCache = null;
   if (!_currentBubbleEl) return;
   var sentences = getTtsSentences(_currentBubbleEl);
   for (var i = 0; i < sentences.length; i++) {
@@ -43,32 +143,48 @@ function clearTtsHighlight() {
   _currentBubbleEl = null;
 }
 
+function applyHighlight(sentences, targetIdx) {
+  if (targetIdx === _lastHighlightIdx) return;
+  _lastHighlightIdx = targetIdx;
+  for (var i = 0; i < sentences.length; i++) {
+    sentences[i].classList.remove('tts-highlight');
+  }
+  if (targetIdx >= 0 && targetIdx < sentences.length) {
+    var target = sentences[targetIdx];
+    target.classList.add('tts-highlight');
+    try {
+      var rect = target.getBoundingClientRect();
+      var viewTop = window.innerHeight * 0.25;
+      var viewBottom = window.innerHeight * 0.75;
+      if (rect.top < viewTop || rect.bottom > viewBottom) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } catch (e) {}
+  }
+}
+
+function getAudioDuration(blob) {
+  return new Promise(function (resolve) {
+    var audio = new Audio();
+    audio.onloadedmetadata = function () {
+      resolve(audio.duration || 0);
+    };
+    audio.onerror = function () {
+      resolve(0);
+    };
+    audio.src = URL.createObjectURL(blob);
+  });
+}
+
 function highlightTtsSentence(bubbleEl, playIndex, totalSegments) {
   if (!bubbleEl) return;
   var sentences = getTtsSentences(bubbleEl);
   if (sentences.length === 0) return;
-
-  for (var i = 0; i < sentences.length; i++) {
-    sentences[i].classList.remove('tts-highlight');
-  }
-
   var total = totalSegments || 1;
-  var ratio = playIndex / total;
-  var domIndex = Math.floor(ratio * sentences.length);
+  var domIndex = Math.floor((playIndex / total) * sentences.length);
   if (domIndex >= sentences.length) domIndex = sentences.length - 1;
   if (domIndex < 0) domIndex = 0;
-
-  var target = sentences[domIndex];
-  target.classList.add('tts-highlight');
-
-  try {
-    var rect = target.getBoundingClientRect();
-    var viewTop = window.innerHeight * 0.25;
-    var viewBottom = window.innerHeight * 0.75;
-    if (rect.top < viewTop || rect.bottom > viewBottom) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  } catch (e) {}
+  applyHighlight(sentences, domIndex);
 }
  
 // ================================================================
@@ -171,8 +287,14 @@ export function initVoices() {
 export function initStreamTTS() {
   _streamTTS = {
     segments: [],
+    segmentSentenceRanges: [],
+    totalSentences: 0,
     synthesizedBlobs: [],
+    segmentDurations: [],
+    segmentTimeRanges: [],
+    totalDuration: 0,
     currentPlayIndex: 0,
+    currentSegmentStartTime: 0,
     isPlaying: false,
     isPaused: false,
     isStopped: false,
@@ -181,20 +303,28 @@ export function initStreamTTS() {
     allReceived: false,
     audioEl: null,
     abortControllers: [],
+    pendingDurationChecks: 0,
   };
 }
  
 export function resetStreamTTS() {
   if (!_streamTTS) return;
   _streamTTS.segments = [];
+  _streamTTS.segmentSentenceRanges = [];
+  _streamTTS.totalSentences = 0;
   _streamTTS.synthesizedBlobs = [];
+  _streamTTS.segmentDurations = [];
+  _streamTTS.segmentTimeRanges = [];
+  _streamTTS.totalDuration = 0;
   _streamTTS.currentPlayIndex = 0;
+  _streamTTS.currentSegmentStartTime = 0;
   _streamTTS.isPlaying = false;
   _streamTTS.isPaused = false;
   _streamTTS.isStopped = false;
   _streamTTS.btnEl = null;
   _streamTTS.totalSegments = 0;
   _streamTTS.allReceived = false;
+  _streamTTS.pendingDurationChecks = 0;
   if (_streamTTS.audioEl) {
     try { _streamTTS.audioEl.pause(); _streamTTS.audioEl.src = ''; } catch (e) {}
     _streamTTS.audioEl = null;
@@ -256,6 +386,10 @@ export function pauseStreamTTS() {
   if (_streamTTS) {
     _streamTTS.isPaused = true;
     _streamTTS.isPlaying = false;
+    if (_highlightRAF) {
+      cancelAnimationFrame(_highlightRAF);
+      _highlightRAF = null;
+    }
     updateBubblePlayBtn(_streamTTS.btnEl, 'paused');
     updateHeaderPlayBtn();
   }
@@ -268,6 +402,8 @@ export function resumeStreamTTS() {
     if (_streamTTS.audioEl) {
       _streamTTS.audioEl.play().catch(function (e) {
         console.error('[StreamTTS] 恢复播放失败：', e);
+      }).then(function () {
+        startHighlightSyncLoop();
       });
     }
     updateBubblePlayBtn(_streamTTS.btnEl, 'playing');
@@ -296,72 +432,252 @@ export function stopStreamTTS() {
 // 文本分段
 // ================================================================
  
-export function splitTextIntoSegments(text) {
-  if (!text) return [];
+export function splitTextIntoSentenceSegments(text) {
+  if (!text) return { segments: [], sentenceRanges: [], totalSentences: 0 };
   var cleaned = text.replace(/\r\n/g, '\n').trim();
-  if (!cleaned) return [];
- 
-  var segments = [];
-  var current = '';
+  if (!cleaned) return { segments: [], sentenceRanges: [], totalSentences: 0 };
+
+  var sentences = splitIntoSentences(cleaned);
+  if (sentences.length === 0) return { segments: [], sentenceRanges: [], totalSentences: 0 };
+
   var MIN_SEG_LEN = 20;
-  var MAX_SEG_LEN = 100;
-  var STRONG_ENDING_MIN_LEN = 8;
-  var sentenceEndings = ['。', '！', '？', '!', '?', '；', ';', '，', ','];
-  var strongEndings = ['。', '！', '？', '!', '?'];
- 
-  function isStrongEnding(ch) {
-    for (var k = 0; k < strongEndings.length; k++) {
-      if (ch === strongEndings[k]) return true;
-    }
-    return false;
-  }
- 
-  for (var i = 0; i < cleaned.length; i++) {
-    var ch = cleaned[i];
-    current += ch;
- 
-    var isSentenceEnd = false;
-    for (var j = 0; j < sentenceEndings.length; j++) {
-      if (ch === sentenceEndings[j]) {
-        isSentenceEnd = true;
-        break;
+  var MAX_SEG_LEN = 120;
+
+  var segments = [];
+  var sentenceRanges = [];
+  var sentenceCharCounts = [];
+  var currentText = '';
+  var startSentenceIdx = 0;
+  var segCharCounts = [];
+
+  for (var i = 0; i < sentences.length; i++) {
+    var sent = sentences[i];
+    var sentChars = countPronouncedChars(sent);
+    if (sentChars < 1) sentChars = 1;
+    sentenceCharCounts.push(sentChars);
+    var newLen = currentText.length + sent.length;
+
+    if (currentText.length > 0 && newLen > MAX_SEG_LEN) {
+      segments.push(currentText);
+      sentenceRanges.push({ start: startSentenceIdx, end: i - 1, charCounts: segCharCounts.slice(), totalChars: currentText.length });
+      currentText = sent;
+      startSentenceIdx = i;
+      segCharCounts = [sentChars];
+    } else {
+      currentText += sent;
+      segCharCounts.push(sentChars);
+      if (currentText.length >= MIN_SEG_LEN && sentences.length - i > 1) {
+        segments.push(currentText);
+        sentenceRanges.push({ start: startSentenceIdx, end: i, charCounts: segCharCounts.slice(), totalChars: currentText.length });
+        currentText = '';
+        startSentenceIdx = i + 1;
+        segCharCounts = [];
       }
-    }
- 
-    if (isSentenceEnd) {
-      var curLen = current.trim().length;
-      var canSplit = false;
-      if (curLen >= MIN_SEG_LEN) {
-        canSplit = true;
-      } else if (curLen >= STRONG_ENDING_MIN_LEN && isStrongEnding(ch)) {
-        canSplit = true;
-      }
-      if (canSplit) {
-        segments.push(current.trim());
-        current = '';
-      }
-    }
- 
-    if (current.length >= MAX_SEG_LEN) {
-      var trimmed = current.trim();
-      if (trimmed) {
-        segments.push(trimmed);
-      }
-      current = '';
     }
   }
- 
-  var tail = current.trim();
-  if (tail && tail.length >= 5) {
-    segments.push(tail);
+
+  if (currentText.length > 0) {
+    segments.push(currentText);
+    sentenceRanges.push({ start: startSentenceIdx, end: sentences.length - 1, charCounts: segCharCounts.slice(), totalChars: currentText.length });
   }
- 
-  return segments;
+
+  return {
+    segments: segments,
+    sentenceRanges: sentenceRanges,
+    totalSentences: sentences.length,
+    sentenceCharCounts: sentenceCharCounts
+  };
+}
+
+export function splitTextIntoSegments(text) {
+  var result = splitTextIntoSentenceSegments(text);
+  return result.segments;
 }
  
 // ================================================================
 // 合成与播放
 // ================================================================
+
+function updateSegmentTimeRanges() {
+  var ranges = [];
+  var acc = 0;
+  for (var i = 0; i < _streamTTS.segmentDurations.length; i++) {
+    var dur = _streamTTS.segmentDurations[i] || 0;
+    ranges.push({ start: acc, end: acc + dur, duration: dur });
+    acc += dur;
+  }
+  _streamTTS.segmentTimeRanges = ranges;
+  _streamTTS.totalDuration = acc;
+}
+
+function estimateRemainingDuration() {
+  if (!_streamTTS) return 0;
+  var durations = _streamTTS.segmentDurations;
+  var totalSegs = _streamTTS.totalSegments;
+  var knownDurations = [];
+  var knownTotal = 0;
+  var knownCount = 0;
+
+  for (var i = 0; i < totalSegs; i++) {
+    if (typeof durations[i] === 'number' && durations[i] > 0) {
+      knownDurations.push(durations[i]);
+      knownTotal += durations[i];
+      knownCount++;
+    }
+  }
+
+  var avgDuration = knownCount > 0 ? knownTotal / knownCount : 3;
+  var unknownCount = totalSegs - knownCount;
+  return knownTotal + unknownCount * avgDuration;
+}
+
+function startHighlightSyncLoop() {
+  if (_highlightRAF) {
+    cancelAnimationFrame(_highlightRAF);
+  }
+
+  function syncHighlight() {
+    if (!_streamTTS || _streamTTS.isStopped || _streamTTS.isPaused) {
+      _highlightRAF = null;
+      return;
+    }
+
+    var audioEl = _streamTTS.audioEl;
+    if (!audioEl || audioEl.paused) {
+      _highlightRAF = requestAnimationFrame(syncHighlight);
+      return;
+    }
+
+    var sentences = getTtsSentences(_currentBubbleEl);
+    if (sentences.length === 0) {
+      _highlightRAF = requestAnimationFrame(syncHighlight);
+      return;
+    }
+
+    var currentTime = audioEl.currentTime || 0;
+    var currentIdx = _streamTTS.currentPlayIndex;
+    var timeRanges = _streamTTS.segmentTimeRanges;
+    var segRanges = _streamTTS.segmentSentenceRanges;
+    var totalSegs = _streamTTS.totalSegments;
+    var delay = CONFIG.TTS_HIGHLIGHT_DELAY || 0;
+
+    var targetSentenceIdx = -1;
+
+    // 段级精确计算：段间用字数定位，段内用字数加权映射
+    if (segRanges && segRanges.length > 0 && currentIdx < segRanges.length) {
+      // 1. 计算段首对应的 DOM 句子索引
+      var charsBeforeSeg = 0;
+      for (var si = 0; si < currentIdx; si++) {
+        if (segRanges[si] && segRanges[si].charCounts) {
+          for (var ci = 0; ci < segRanges[si].charCounts.length; ci++) {
+            charsBeforeSeg += segRanges[si].charCounts[ci];
+          }
+        }
+      }
+
+      // 2. 计算段尾对应的 DOM 句子索引
+      var curSegCharCounts = segRanges[currentIdx] && segRanges[currentIdx].charCounts ? segRanges[currentIdx].charCounts : [];
+      var curSegTotalChars = 0;
+      for (var cj = 0; cj < curSegCharCounts.length; cj++) {
+        curSegTotalChars += curSegCharCounts[cj];
+      }
+      var charsAtSegEnd = charsBeforeSeg + curSegTotalChars;
+
+      // 3. 在 DOM 句子中查找段首和段尾对应的句子索引
+      var charInfo = getCharInfo(sentences);
+      var segStartDomIdx = 0;
+      var segEndDomIdx = sentences.length - 1;
+      for (var di = 0; di < charInfo.cumulative.length - 1; di++) {
+        if (charsBeforeSeg < charInfo.cumulative[di + 1]) {
+          segStartDomIdx = di;
+          break;
+        }
+        segStartDomIdx = di;
+      }
+      for (var dj = 0; dj < charInfo.cumulative.length - 1; dj++) {
+        if (charsAtSegEnd < charInfo.cumulative[dj + 1]) {
+          segEndDomIdx = dj;
+          break;
+        }
+        segEndDomIdx = dj;
+      }
+      if (segEndDomIdx >= sentences.length) segEndDomIdx = sentences.length - 1;
+      if (segStartDomIdx > segEndDomIdx) segStartDomIdx = segEndDomIdx;
+
+      // 4. 段内按"时间→字数→句子索引"映射（字数加权）
+      var segDuration = timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0
+        ? timeRanges[currentIdx].duration
+        : 0;
+      var adjustedSegTime = currentTime - delay;
+      if (adjustedSegTime < 0) adjustedSegTime = 0;
+      var curSegProgress = 0;
+      if (segDuration > 0) {
+        curSegProgress = adjustedSegTime / segDuration;
+      } else {
+        curSegProgress = 0.5;
+      }
+      curSegProgress = Math.max(0, Math.min(0.999, curSegProgress));
+
+      // 用时间进度推算已播放字数位置，在段内句子中按字数查找
+      var targetCharPos = charsBeforeSeg + curSegProgress * curSegTotalChars;
+      targetSentenceIdx = segStartDomIdx;
+      for (var di2 = segStartDomIdx; di2 <= segEndDomIdx; di2++) {
+        if (targetCharPos < charInfo.cumulative[di2 + 1]) {
+          targetSentenceIdx = di2;
+          break;
+        }
+        targetSentenceIdx = di2;
+      }
+    }
+
+    // Fallback：全局进度比例 + 字数加权
+    if (targetSentenceIdx < 0) {
+      var playedDuration = 0;
+      if (timeRanges && timeRanges.length > 0 && currentIdx < timeRanges.length) {
+        playedDuration = timeRanges[currentIdx].start || 0;
+      } else {
+        var estimatedSegDuration = 3;
+        if (timeRanges && timeRanges.length > 0) {
+          var sum2 = 0;
+          for (var k2 = 0; k2 < timeRanges.length; k2++) {
+            sum2 += timeRanges[k2].duration || 0;
+          }
+          estimatedSegDuration = sum2 / timeRanges.length;
+        }
+        playedDuration = currentIdx * estimatedSegDuration;
+      }
+
+      var currentTotalTime = playedDuration + currentTime;
+      var estimatedTotalDuration = estimateRemainingDuration();
+      var globalProgress = currentTotalTime / Math.max(0.1, estimatedTotalDuration);
+      globalProgress = Math.max(0, Math.min(0.999, globalProgress));
+
+      if (delay !== 0) {
+        var adjustedTime = currentTotalTime - delay;
+        if (adjustedTime < 0) adjustedTime = 0;
+        globalProgress = adjustedTime / Math.max(0.1, estimatedTotalDuration);
+        globalProgress = Math.max(0, Math.min(0.999, globalProgress));
+      }
+
+      targetSentenceIdx = getTargetSentenceByCharProgress(sentences, globalProgress);
+    }
+
+    targetSentenceIdx = Math.max(0, Math.min(sentences.length - 1, targetSentenceIdx));
+    applyHighlight(sentences, targetSentenceIdx);
+
+    if (CONFIG.TTS_DEBUG) {
+      console.log('[TTS-Highlight]', {
+        segIdx: currentIdx + '/' + totalSegs,
+        audioTime: currentTime.toFixed(3) + 's',
+        targetSentence: targetSentenceIdx + '/' + sentences.length
+      });
+    }
+
+    _highlightRAF = requestAnimationFrame(syncHighlight);
+  }
+
+  _highlightRAF = requestAnimationFrame(syncHighlight);
+}
  
 function synthesizeSegmentWorker(text, index) {
   return new Promise(function (resolve, reject) {
@@ -436,6 +752,11 @@ function playNextSegment() {
       _currentSpeakBtn = null;
       hideToast();
       _streamTTS.isPlaying = false;
+      if (_highlightRAF) {
+        cancelAnimationFrame(_highlightRAF);
+        _highlightRAF = null;
+      }
+      clearTtsHighlight();
       updateHeaderPlayBtn();
     }
     return;
@@ -444,12 +765,18 @@ function playNextSegment() {
   _streamTTS.isPlaying = true;
   updateBubblePlayBtn(_streamTTS.btnEl, 'playing');
   updateHeaderPlayBtn();
-
+ 
   if (!_currentBubbleEl && _streamTTS.btnEl) {
     _currentBubbleEl = getMessageBubble(_streamTTS.btnEl);
   }
-  highlightTtsSentence(_currentBubbleEl, idx, _streamTTS.totalSegments);
-
+ 
+  var ranges = _streamTTS.segmentTimeRanges;
+  if (ranges.length > 0 && idx < ranges.length) {
+    _streamTTS.currentSegmentStartTime = ranges[idx].start || 0;
+  } else {
+    _streamTTS.currentSegmentStartTime = 0;
+  }
+ 
   var url = URL.createObjectURL(blob);
   if (!_streamTTS.audioEl) {
     _streamTTS.audioEl = new Audio();
@@ -460,13 +787,18 @@ function playNextSegment() {
     });
     _streamTTS.audioEl.addEventListener('error', function () {
       console.error('[StreamTTS] 播放失败');
+      URL.revokeObjectURL(url);
       _streamTTS.currentPlayIndex++;
       playNextSegment();
+    });
+    _streamTTS.audioEl.addEventListener('play', function () {
+      startHighlightSyncLoop();
     });
   }
   _streamTTS.audioEl.src = url;
   _streamTTS.audioEl.play().catch(function (e) {
     console.error('[StreamTTS] 播放错误：', e);
+    URL.revokeObjectURL(url);
     _streamTTS.currentPlayIndex++;
     playNextSegment();
   });
@@ -502,6 +834,14 @@ function startSynthesisQueue() {
     synthesizeSegmentWorker(seg, idx).then(function (result) {
       if (_streamTTS.isStopped) return;
       _streamTTS.synthesizedBlobs[result.index] = result.blob;
+ 
+      getAudioDuration(result.blob).then(function (dur) {
+        if (_streamTTS.isStopped) return;
+        _streamTTS.segmentDurations[result.index] = dur || 0;
+        updateSegmentTimeRanges();
+        console.log('[StreamTTS] 第' + result.index + '段时长: ' + (dur || 0).toFixed(2) + 's');
+      });
+ 
       console.log('[StreamTTS] 第' + result.index + '段就绪');
  
       var curIdx = _streamTTS.currentPlayIndex;
@@ -608,12 +948,14 @@ export function streamSpeakWorker(text, btnEl) {
   }
  
   var plainText = stripMarkdown(text);
-  var segments = splitTextIntoSegments(plainText);
-  if (segments.length === 0) return;
+  var segResult = splitTextIntoSentenceSegments(plainText);
+  if (segResult.segments.length === 0) return;
  
-  _streamTTS.totalSegments = segments.length;
+  _streamTTS.totalSegments = segResult.segments.length;
+  _streamTTS.segmentSentenceRanges = segResult.sentenceRanges;
+  _streamTTS.totalSentences = segResult.totalSentences;
   _streamTTS.allReceived = true;
-  _streamTTS.segments = segments;
+  _streamTTS.segments = segResult.segments;
  
   showToast('正在合成语音...');
   startSynthesisQueue();
@@ -666,12 +1008,75 @@ export function speakViaWebSpeech(plainText, btnEl) {
   if (_zhVoice) utter.voice = _zhVoice;
 
   var wsBubble = getMessageBubble(btnEl);
-  var wsTotalChars = trimmed.length;
   var wsSentences = wsBubble ? getTtsSentences(wsBubble) : [];
+  var wsStartTime = 0;
+  var wsEstimatedDuration = trimmed.length * 0.12;
+  var wsRAF = null;
+  var wsLastIdx = -1;
+  var wsEnded = false;
+
+  var wsCumulative = [0];
+  var wsTotalChars = 0;
+  for (var wi = 0; wi < wsSentences.length; wi++) {
+    var wlen = countPronouncedCharsFromEl(wsSentences[wi]);
+    if (wlen < 1) wlen = 1;
+    wsTotalChars += wlen;
+    wsCumulative.push(wsTotalChars);
+  }
+  function wsCharIndexToSentence(ratio) {
+    if (wsSentences.length === 0) return -1;
+    if (wsSentences.length === 1 || wsTotalChars <= 0) return 0;
+    var pos = ratio * wsTotalChars;
+    var di = 0;
+    for (var ci = 0; ci < wsCumulative.length - 1; ci++) {
+      if (pos < wsCumulative[ci + 1]) { di = ci; break; }
+      di = ci;
+    }
+    if (di >= wsSentences.length) di = wsSentences.length - 1;
+    if (di < 0) di = 0;
+    return di;
+  }
+
+  function wsClearHighlight() {
+    if (wsRAF) {
+      cancelAnimationFrame(wsRAF);
+      wsRAF = null;
+    }
+    for (var i = 0; i < wsSentences.length; i++) {
+      wsSentences[i].classList.remove('tts-highlight');
+    }
+  }
+
+  function wsSyncLoop() {
+    if (wsEnded || !synth.speaking) {
+      wsRAF = null;
+      return;
+    }
+    if (synth.paused) {
+      wsRAF = requestAnimationFrame(wsSyncLoop);
+      return;
+    }
+    var elapsed = (Date.now() - wsStartTime) / 1000;
+    var ratio = elapsed / wsEstimatedDuration;
+    ratio = Math.max(0, Math.min(1, ratio));
+    var domIdx = wsCharIndexToSentence(ratio);
+    if (domIdx !== wsLastIdx) {
+      wsLastIdx = domIdx;
+      for (var i = 0; i < wsSentences.length; i++) {
+        wsSentences[i].classList.remove('tts-highlight');
+      }
+      if (domIdx >= 0 && domIdx < wsSentences.length) {
+        wsSentences[domIdx].classList.add('tts-highlight');
+      }
+    }
+    wsRAF = requestAnimationFrame(wsSyncLoop);
+  }
 
   var started = false;
   var startTimeout = setTimeout(function () {
     if (!started) {
+      wsEnded = true;
+      wsClearHighlight();
       try { synth.cancel(); } catch (e) {}
       if (btnEl) btnEl.classList.remove("is-speaking");
       if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
@@ -688,32 +1093,43 @@ export function speakViaWebSpeech(plainText, btnEl) {
     started = true;
     _ttsVerified = true;
     clearTimeout(startTimeout);
+    wsStartTime = Date.now();
+    wsEnded = false;
     _currentBubbleEl = wsBubble;
-    highlightTtsSentence(wsBubble, 0, wsTotalChars || 1);
+    if (wsSentences.length > 0) {
+      wsSentences[0].classList.add('tts-highlight');
+      wsLastIdx = 0;
+      wsRAF = requestAnimationFrame(wsSyncLoop);
+    }
   };
   utter.onboundary = function (e) {
-    if (!wsBubble || wsSentences.length === 0) return;
+    if (wsEnded || !wsBubble || wsSentences.length === 0) return;
     var charIndex = e.charIndex || 0;
-    var ratio = charIndex / wsTotalChars;
-    var domIdx = Math.floor(ratio * wsSentences.length);
-    if (domIdx >= wsSentences.length) domIdx = wsSentences.length - 1;
+    var totalChars = trimmed.length || 1;
+    var ratio = charIndex / totalChars;
+    var domIdx = wsCharIndexToSentence(ratio);
     if (domIdx < 0) domIdx = 0;
+    wsLastIdx = domIdx;
     for (var i = 0; i < wsSentences.length; i++) {
       wsSentences[i].classList.remove('tts-highlight');
     }
-    wsSentences[domIdx].classList.add('tts-highlight');
+    if (domIdx >= 0 && domIdx < wsSentences.length) {
+      wsSentences[domIdx].classList.add('tts-highlight');
+    }
   };
   utter.onend = function () {
+    wsEnded = true;
     clearTimeout(startTimeout);
+    wsClearHighlight();
     if (btnEl) btnEl.classList.remove("is-speaking");
     if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-    clearTtsHighlight();
   };
   utter.onerror = function () {
+    wsEnded = true;
     clearTimeout(startTimeout);
+    wsClearHighlight();
     if (btnEl) btnEl.classList.remove("is-speaking");
     if (_currentSpeakBtn === btnEl) _currentSpeakBtn = null;
-    clearTtsHighlight();
     if (!started) {
       _ttsBroken = true;
       showTTSUnavailable();
@@ -724,7 +1140,9 @@ export function speakViaWebSpeech(plainText, btnEl) {
     synth.speak(utter);
     if (synth.paused) synth.resume();
   } catch (e) {
+    wsEnded = true;
     clearTimeout(startTimeout);
+    wsClearHighlight();
     if (btnEl) btnEl.classList.remove("is-speaking");
     _ttsBroken = true;
     showTTSUnavailable();

@@ -52,6 +52,15 @@ export const CONFIG = {
     { id: 'zh-CN-XiaohanNeural', name: '晓涵', emotion: '亲切', rate: 0, pitch: 0 },
   ],
   TTS_DEFAULT_VOICE: 'zh-CN-XiaoxiaoNeural',
+
+  /** TTS 高亮同步配置
+   *  TTS_HIGHLIGHT_DELAY: 高亮时间偏移（秒）。
+   *    - 正值：高亮滞后于声音
+   *    - 负值：高亮超前于声音
+   *    - 默认 -0.2，高亮略微提前切换，消除人耳感知的滞后
+   */
+  TTS_HIGHLIGHT_DELAY: -0.2,
+  TTS_DEBUG: false,
 };
 
 /** 系统提示词 */
