@@ -11,16 +11,16 @@ import {
   extractFollowUpQuestions,
   generateFallbackQuestions
 
-} from './utils.js?v=1.3.12';
+} from './utils.js?v=1.3.13';
 import {
   state,
   currentSession,
   chatData,
   truncateMessagesFrom
 
-} from './state.js?v=1.3.12';
-import { CONFIG } from './config.js?v=1.3.12';
-import { attachSpeakButton } from './tts.js?v=1.3.12';
+} from './state.js?v=1.3.13';
+import { CONFIG } from './config.js?v=1.3.13';
+import { attachSpeakButton } from './tts.js?v=1.3.13';
  
 // 导出到全局，供 chat.js 和 app.js 使用
 // 用对象包装避免 ES Module 只读绑定问题
@@ -460,7 +460,7 @@ export function renderSidebarList() {
  
     item.addEventListener("click", function (e) {
       if (e.target.closest(".chat-sidebar-item-delete")) return;
-      window.switchSession(s.id);
+      document.dispatchEvent(new CustomEvent('chat:switchSession', { detail: { id: s.id } }));
       closeSidebar();
       renderCurrentSession();
     });
@@ -485,23 +485,25 @@ export function renderSidebarList() {
 // 滚动控制
 // ================================================================
  
+var scrollRafId = null;
+
 export function scrollToBottom(force) {
   if (!domRefs.chatMessages) return;
   if (!force && domRefs.chatMessages.scrollHeight <= domRefs.chatMessages.clientHeight + 2) return;
-  if (window.scrollRafId) {
+  if (scrollRafId) {
     if (!force) return;
-    cancelAnimationFrame(window.scrollRafId);
+    cancelAnimationFrame(scrollRafId);
   }
-  window.scrollRafId = requestAnimationFrame(function () {
+  scrollRafId = requestAnimationFrame(function () {
     if (!domRefs.chatMessages) return;
     var distanceFromBottom =
       domRefs.chatMessages.scrollHeight - domRefs.chatMessages.scrollTop - domRefs.chatMessages.clientHeight;
     if (!force && distanceFromBottom < 4) {
-      window.scrollRafId = null;
+      scrollRafId = null;
       return;
     }
     domRefs.chatMessages.scrollTop = domRefs.chatMessages.scrollHeight;
-    window.scrollRafId = null;
+    scrollRafId = null;
   });
 }
  
@@ -531,7 +533,7 @@ export function renderFollowUpButtons(containerEl, questions) {
         if (!domRefs.chatInput) return;
         domRefs.chatInput.value = questionText;
         domRefs.chatInput.style.height = "auto";
-        if (window.sendMessage) window.sendMessage();
+        document.dispatchEvent(new CustomEvent('chat:send'));
       });
       container.appendChild(btn);
     })(questions[i]);

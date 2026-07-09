@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=1.3.12';
+import { CONFIG } from './config.js?v=1.3.13';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=1.3.12';
+} from './state.js?v=1.3.13';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=1.3.12';
+} from './render.js?v=1.3.13';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=1.3.12';
+} from './chat.js?v=1.3.13';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=1.3.12';
+} from './tts.js?v=1.3.13';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=1.3.12';
+} from './auth.js?v=1.3.13';
  
 // ================================================================
 // 事件绑定
@@ -151,9 +151,19 @@ export function setupChat() {
  
   // 重新回答事件
   document.addEventListener('chat:regenerate', function (e) {
-    if (e.detail && e.detail.question) {
-      renderRefs.chatInput.value = e.detail.question;
+    sendMessage();
+  });
+
+  // 切换会话事件
+  document.addEventListener('chat:switchSession', function (e) {
+    if (e.detail && e.detail.id) {
+      state.currentSessionId = e.detail.id;
+      saveSessions();
     }
+  });
+
+  // 发送消息事件（追问按钮等触发）
+  document.addEventListener('chat:send', function () {
     sendMessage();
   });
  
@@ -318,8 +328,7 @@ function onConfirmOk() {
     var sid = state.pendingOperation.id;
     state.pendingOperation = null;
     hideConfirm();
-    // 使用 render.js 中的 deleteSession
-    window.deleteSession(sid);
+    deleteSession(sid);
     renderSidebarList();
     renderCurrentSession();
     return;
@@ -801,9 +810,9 @@ function handleLogin() {
 }
  
 // ================================================================
-// 暴露到全局（供 HTML 和其他模块调用）
+// 暴露到全局（供 HTML 内联事件和调试用）
 // ================================================================
- 
+
 window.startNewSession = startNewSession;
 window.openSidebar = openSidebar;
 window.closeSidebar = closeSidebar;
@@ -811,8 +820,8 @@ window.renderSidebarList = renderSidebarList;
 window.confirmDeleteSession = confirmDeleteSession;
 window.sendMessage = sendMessage;
 window.togglePlayPause = togglePlayPause;
- 
-// 重新导出 state 到全局
+
+// 重新导出 state 到全局（调试用）
 Object.defineProperty(window, 'state', {
   get: function() { return state; }
 });
@@ -823,10 +832,6 @@ Object.defineProperty(window, 'currentSessionId', {
   get: function() { return state.currentSessionId; },
   set: function(val) { state.currentSessionId = val; }
 });
-window.switchSession = function(id) {
-  state.currentSessionId = id;
-  saveSessions();
-};
 window.deleteSession = deleteSession;
  
 // ================================================================
