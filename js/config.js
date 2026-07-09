@@ -28,6 +28,7 @@ export const CONFIG = {
   TOKEN_KEY: "lingzhi_token",
   USER_KEY: "lingzhi_user",
   GUEST_MSG_KEY: "lingzhi_guest_msg_count",
+  GUEST_MAX_MESSAGES: 5,
 
   /** 模型配置 */
   MODEL: "agnes-2.0-flash",
