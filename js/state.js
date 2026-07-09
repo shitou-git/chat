@@ -8,8 +8,8 @@
  *       所有可变状态封装在 `state` 对象中，通过属性赋值
  */
  
-import { CONFIG } from './config.js?v=1.3.11';
-import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.3.11';
+import { CONFIG } from './config.js?v=1.3.12';
+import { isLoggedIn, saveMessage, deleteMessage, createSession as apiCreateSession, listSessions as apiListSessions, listMessages, deleteRemoteSession } from './auth.js?v=1.3.12';
  
 // ================================================================
 // 状态对象（可读写）
@@ -301,7 +301,11 @@ export function deleteSession(id) {
 /** 持久化所有会话 */
 export function saveSessions() {
   try {
-    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(state.sessions));
+    var data = {
+      sessions: state.sessions,
+      currentSessionId: state.currentSessionId
+    };
+    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
     console.warn("saveSessions error:", e);
   }
@@ -364,10 +368,12 @@ export function loadSessions() {
     // - 数组格式：直接是会话数组 [...sessions]
     // - 对象格式：{ sessions: [...], currentSessionId: "xxx" }
     var sessionsArray = null;
+    var savedCurrentId = null;
     if (Array.isArray(parsed)) {
       sessionsArray = parsed;
     } else if (parsed && Array.isArray(parsed.sessions)) {
       sessionsArray = parsed.sessions;
+      savedCurrentId = parsed.currentSessionId;
     }
 
     if (sessionsArray) {
@@ -388,8 +394,11 @@ export function loadSessions() {
       });
       state.nextId = maxId + 1;
 
-      // 注意：不恢复 currentSessionId
-      // 每次打开页面默认选中空话题（由 init 中的 sessions[0] 逻辑处理）
+      // 恢复 currentSessionId（如果存在且有效）
+      if (savedCurrentId && state.sessions.some(function(s) { return s.id === savedCurrentId; })) {
+        state.currentSessionId = savedCurrentId;
+        console.log('[灵知] loadSessions - 恢复 currentSessionId:', savedCurrentId);
+      }
     }
     // 同时加载删除记录
     loadDeletedIds();
@@ -434,7 +443,15 @@ export async function syncNewSession(s) {
   if (!isLoggedIn()) return;
   if (s.serverSessionId) return;
   try {
-    var data = await apiCreateSession(s.title);
+    var sessionTitle = s.title || '新话题';
+    // 如果标题还是"新话题"，尝试从第一条用户消息推断
+    if (sessionTitle === '新话题' && s.messages && s.messages.length > 0) {
+      var firstUserMsg = s.messages.find(function(m) { return m.role === 'user'; });
+      if (firstUserMsg) {
+        sessionTitle = firstUserMsg.content.substring(0, 20) + (firstUserMsg.content.length > 20 ? '…' : '');
+      }
+    }
+    var data = await apiCreateSession(sessionTitle);
     s.serverSessionId = data.id;
     saveSessions();
     // 批量同步已有消息
@@ -544,25 +561,25 @@ export async function loadAllFromServer() {
   try {
     console.log('[灵知] loadAllFromServer - 开始加载...');
     console.log('[灵知] loadAllFromServer - 本地会话数:', state.sessions.length);
- 
+
     // 保存当前会话ID，稍后尝试恢复
     var currentId = state.currentSessionId;
- 
+
     // 保存本地未同步的会话（没有 serverSessionId 的）
     // 这些是用户新建的，后端本来就没有，需要保留
     var localUnsynced = state.sessions.filter(function(s) {
       return !s.serverSessionId;
     });
     console.log('[灵知] loadAllFromServer - 本地未同步会话数:', localUnsynced.length);
- 
+
     // 加载本地已删除的 ID 列表
     loadDeletedIds();
- 
+
     // 从服务端拉取最新数据（已同步的会话）
     console.log('[灵知] loadAllFromServer - 从服务端拉取数据');
     var remoteSessions = await apiListSessions();
     console.log('[灵知] loadAllFromServer - 服务端会话数:', remoteSessions.length);
- 
+
     var loadedSessions = [];
     var maxMsgId = 0;
 
@@ -653,10 +670,21 @@ export async function loadAllFromServer() {
         // 会话 ID：本地有匹配就复用本地 ID，没有才生成新的
         var sessionId = localMatch ? localMatch.id : (rs.id + '_local');
 
+        // 标题处理：优先使用本地标题，其次从第一条用户消息推断，最后用服务端标题或"新话题"
+        var sessionTitle = rs.title || '新话题';
+        if (localMatch && localMatch.title && localMatch.title !== '新话题') {
+          sessionTitle = localMatch.title;
+        } else if (sessionTitle === '新话题' && localMsgs.length > 0) {
+          var firstUserMsg = localMsgs.find(function(m) { return m.role === 'user'; });
+          if (firstUserMsg) {
+            sessionTitle = firstUserMsg.content.substring(0, 20) + (firstUserMsg.content.length > 20 ? '…' : '');
+          }
+        }
+
         loadedSessions.push({
           id: sessionId,
           serverSessionId: rs.id,
-          title: rs.title,
+          title: sessionTitle,
           createdAt: rs.created_at || Date.now(),
           messages: localMsgs,
         });
