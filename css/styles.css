@@ -544,7 +544,7 @@ body {
   box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.4), inset 0 0 0 1px rgba(139, 92, 246, 0.2);
 }
 body.is-dark .tts-sentence.tts-highlight {
-  background: rgba(167, 139, 250, 0.32);
+  background: rgba(134, 239, 172, 0.35);
 }
 
 /* Markdown 表格 */
