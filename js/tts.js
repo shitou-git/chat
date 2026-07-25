@@ -604,32 +604,26 @@ function startHighlightSyncLoop() {
       if (segEndDomIdx >= sentences.length) segEndDomIdx = sentences.length - 1;
       if (segStartDomIdx > segEndDomIdx) segStartDomIdx = segEndDomIdx;
 
-      // 4. 段内按"时间→字数→句子索引"映射（字数加权 + 有效语速补偿）
+      // 4. 段内按"时间→字数→句子索引"映射
       var segDuration = timeRanges && timeRanges[currentIdx] && timeRanges[currentIdx].duration > 0
         ? timeRanges[currentIdx].duration
         : 0;
       var adjustedSegTime = currentTime - delay;
       if (adjustedSegTime < 0) adjustedSegTime = 0;
       
-      var SPEAK_RATE_PER_CHAR = 0.12;
-      var PUNCTUATION_PAUSE = 0.3;
-      var SHORT_SENTENCE_PAUSE = 0.5;
-      
-      var estimatedSpeakingTime = curSegTotalChars * SPEAK_RATE_PER_CHAR;
-      var actualPlayTime = Math.min(adjustedSegTime, segDuration);
+      var actualPlayTime = Math.min(adjustedSegTime, segDuration || adjustedSegTime);
       
       var effectiveProgress = 0;
-      if (estimatedSpeakingTime > 0) {
-        effectiveProgress = actualPlayTime / estimatedSpeakingTime;
-      } else if (segDuration > 0) {
+      if (segDuration > 0) {
         effectiveProgress = actualPlayTime / segDuration;
       } else {
-        effectiveProgress = 0.5;
-      }
-      
-      var avgCharsPerSentence = curSegTotalChars / Math.max(1, curSegCharCounts.length);
-      if (avgCharsPerSentence < 8) {
-        effectiveProgress = Math.min(effectiveProgress * 1.2, 0.999);
+        var SPEAK_RATE_PER_CHAR = 0.2;
+        var estimatedSpeakingTime = curSegTotalChars * SPEAK_RATE_PER_CHAR;
+        if (estimatedSpeakingTime > 0) {
+          effectiveProgress = actualPlayTime / estimatedSpeakingTime;
+        } else {
+          effectiveProgress = 0.5;
+        }
       }
       
       effectiveProgress = Math.max(0, Math.min(0.999, effectiveProgress));
