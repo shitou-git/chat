@@ -624,6 +624,38 @@ body.is-dark .md-table tbody tr:nth-child(even) {
   40% { opacity: 1; transform: scale(1); }
 }
 
+/* ========== 流式打字光标 ========== */
+/* 流式输出时显示在已提交段末尾，逐字追加字符 */
+.stream-cursor {
+  display: inline-block;
+  position: relative;
+  vertical-align: baseline;
+  color: var(--c-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 光标竖线效果（贴在文本末尾右侧） */
+  margin-left: 1px;
+}
+.stream-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  background: var(--c-primary-light, #8b5cf6);
+  vertical-align: text-bottom;
+  animation: stream-blink 1s steps(2, start) infinite;
+}
+@keyframes stream-blink {
+  to { visibility: hidden; }
+}
+/* 长内容降级模式：纯文本追加，不闪烁 */
+.stream-plaintext {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ========== 输入区 ========== */
 .chat-input-area {
   padding: 12px 16px;
