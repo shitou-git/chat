@@ -31,7 +31,7 @@ export const CONFIG = {
   GUEST_MAX_MESSAGES: 3,
 
   /** 模型配置 */
-  MODEL: "agnes-2.0-flash",
+  MODEL: "agnes-2.5-flash",
   MAX_TOKENS: 2048,
   TEMPERATURE: 0.3,
 
