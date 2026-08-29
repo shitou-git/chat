@@ -140,14 +140,34 @@ async function fetchWithRetry(historyMessages) {
       response = await doFetch(historyMessages);
       if (response.ok) break;
       var errorText = await response.text();
-      if (response.status >= 500 && response.status < 600 && retryCount < CONFIG.MAX_RETRIES) {
+      var isServerError = response.status >= 500 && response.status < 600;
+      var isRateLimit = response.status === 429;
+      var canRetry = isServerError || isRateLimit;
+
+      if (canRetry && retryCount < CONFIG.MAX_RETRIES) {
         retryCount++;
-        await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
+        var waitMs = CONFIG.RETRY_BASE_DELAY * retryCount; // 线性退避
+        // 429 优先使用服务器返回的 Retry-After（秒）
+        if (isRateLimit) {
+          var retryAfter = response.headers.get("Retry-After");
+          if (retryAfter && !isNaN(Number(retryAfter)) && Number(retryAfter) > 0) {
+            waitMs = Math.max(waitMs, Number(retryAfter) * 1000);
+          } else {
+            // 429 没有 Retry-After 时用更长的退避
+            waitMs = CONFIG.RETRY_BASE_DELAY * Math.pow(2, retryCount); // 指数退避
+          }
+        }
+        await delay(waitMs);
         continue;
+      }
+      // 429 友好提示
+      if (isRateLimit) {
+        throw new Error("API 请求过于频繁，请稍后再试（错误码：429）");
       }
       throw new Error("API 请求失败：" + response.status + " " + errorText);
     } catch (err) {
       if (err.name === "AbortError") throw err;
+      if (err.message && err.message.indexOf("请求过于频繁") !== -1) throw err; // 429 提示直接抛出
       if (retryCount < CONFIG.MAX_RETRIES) {
         retryCount++;
         await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
