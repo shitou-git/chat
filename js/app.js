@@ -508,6 +508,9 @@ function setupAuth() {
       if (emailEl) emailEl.textContent = '-';
     }
 
+    // 渲染模型列表
+    renderModelList();
+
     // 渲染语音列表
     renderVoiceList();
 
@@ -516,6 +519,23 @@ function setupAuth() {
 
   function closeSettingsModal() {
     if (settingsOverlay) settingsOverlay.classList.remove('show');
+  }
+
+  function renderModelList() {
+    var selectEl = document.getElementById('settingsModelSelect');
+    if (!selectEl || !CONFIG.MODEL_OPTIONS) return;
+    var savedModel = localStorage.getItem(CONFIG.MODEL_STORAGE_KEY) || CONFIG.MODEL;
+    selectEl.innerHTML = '';
+    CONFIG.MODEL_OPTIONS.forEach(function (opt) {
+      var option = document.createElement('option');
+      option.value = opt.id;
+      option.textContent = opt.name + '（' + opt.desc + '）';
+      if (opt.id === savedModel) option.selected = true;
+      selectEl.appendChild(option);
+    });
+    selectEl.onchange = function () {
+      localStorage.setItem(CONFIG.MODEL_STORAGE_KEY, selectEl.value);
+    };
   }
 
   function renderVoiceList() {

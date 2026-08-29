@@ -135,9 +135,10 @@ function buildHistoryMessages() {
 async function fetchWithRetry(historyMessages) {
   var response = null;
   var retryCount = 0;
+  var modelToUse = getCurrentModel();
   while (retryCount <= CONFIG.MAX_RETRIES) {
     try {
-      response = await doFetch(historyMessages);
+      response = await doFetch(historyMessages, modelToUse);
       if (response.ok) break;
       var errorText = await response.text();
       var isServerError = response.status >= 500 && response.status < 600;
@@ -164,10 +165,20 @@ async function fetchWithRetry(historyMessages) {
       if (isRateLimit) {
         throw new Error("API 请求过于频繁，请稍后再试（错误码：429）");
       }
+      // 模型不可用的友好提示（如 2.5 灰度不通过）
+      if (modelToUse.indexOf("2.5") !== -1) {
+        try {
+          var errorData = JSON.parse(errorText);
+          if (errorData.error && errorData.error.code === "model_not_found") {
+            throw new Error("当前模型不可用，请在设置中切换到其他模型后重试");
+          }
+        } catch (e2) { /* ignore parse error */ }
+      }
       throw new Error("API 请求失败：" + response.status + " " + errorText);
     } catch (err) {
       if (err.name === "AbortError") throw err;
       if (err.message && err.message.indexOf("请求过于频繁") !== -1) throw err; // 429 提示直接抛出
+      if (err.message && err.message.indexOf("当前模型不可用") !== -1) throw err; // 模型提示直接抛出
       if (retryCount < CONFIG.MAX_RETRIES) {
         retryCount++;
         await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
@@ -177,6 +188,19 @@ async function fetchWithRetry(historyMessages) {
     }
   }
   return response;
+}
+
+/** 获取用户在设置中选择的模型（带兜底） */
+function getCurrentModel() {
+  try {
+    var saved = localStorage.getItem(CONFIG.MODEL_STORAGE_KEY);
+    if (saved) {
+      for (var i = 0; i < CONFIG.MODEL_OPTIONS.length; i++) {
+        if (CONFIG.MODEL_OPTIONS[i].id === saved) return saved;
+      }
+    }
+  } catch (e) {}
+  return CONFIG.MODEL;
 }
 
 function finalRender(bubble, aiMsgDiv, textForBubble, msgObjToAttach, lastUserQuestion) {
@@ -444,7 +468,7 @@ export async function sendMessage() {
 // API 请求
 // ================================================================
  
-function doFetch(historyMessages) {
+function doFetch(historyMessages, model) {
   var headers = { "Content-Type": "application/json" };
   var token = authToken();
   if (token) {
@@ -455,7 +479,7 @@ function doFetch(historyMessages) {
     headers: headers,
     signal: state.abortController.signal,
     body: JSON.stringify({
-      model: CONFIG.MODEL,
+      model: model || CONFIG.MODEL,
       messages: historyMessages,
       temperature: CONFIG.TEMPERATURE,
       max_tokens: CONFIG.MAX_TOKENS,

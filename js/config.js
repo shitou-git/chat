@@ -35,6 +35,14 @@ export const CONFIG = {
   MAX_TOKENS: 2048,
   TEMPERATURE: 0.3,
 
+  /** 可选模型列表（设置弹窗下拉菜单用） */
+  MODEL_OPTIONS: [
+    { id: "agnes-2.0-flash", name: "Agnes 2.0 Flash", desc: "稳定版" },
+    { id: "agnes-2.5-flash", name: "Agnes 2.5 Flash", desc: "当前版本" },
+  ],
+  /** localStorage 存储用户选择模型的键名 */
+  MODEL_STORAGE_KEY: "lingzhi_model",
+
   /** 重试配置 */
   MAX_RETRIES: 2,
   RETRY_BASE_DELAY: 1000,
