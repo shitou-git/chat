@@ -4,14 +4,14 @@
  * 包含消息发送、流式渲染、API 调用等核心逻辑
  */
  
-import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=1.3.2';
+import { CONFIG, SYSTEM_PROMPT, IDENTITY_REPLY, IDENTITY_KW } from './config.js?v=1.3.3';
 import {
   state,
   addMessageData,
   chatData,
   currentSession,
   saveChatHistory
-} from './state.js?v=1.3.2';
+} from './state.js?v=1.3.3';
 import {
   renderContent,
   renderContentLight,
@@ -21,7 +21,7 @@ import {
   extractFollowUpQuestions,
   generateFallbackQuestions,
   escapeHtml
-} from './utils.js?v=1.3.2';
+} from './utils.js?v=1.3.3';
 import {
   renderCurrentSession,
   renderEmptyState,
@@ -30,13 +30,13 @@ import {
   createMessageElement,
   renderFollowUpButtons,
   domRefs as renderRefs
-} from './render.js?v=1.3.2';
+} from './render.js?v=1.3.3';
 import {
   stopAllSpeak,
   updateHeaderPlayBtn,
   attachSpeakButton as attachSpeakButtonToBubble
-} from './tts.js?v=1.3.2';
-import { authToken, isLoggedIn } from './auth.js?v=1.3.2';
+} from './tts.js?v=1.3.3';
+import { authToken, isLoggedIn } from './auth.js?v=1.3.3';
  
 // ================================================================
 // 发送/停止
@@ -458,12 +458,33 @@ export async function sendMessage() {
 // API 请求
 // ================================================================
  
-function doFetch(historyMessages, model) {
-  var headers = { "Content-Type": "application/json" };
-  var token = authToken();
-  if (token) {
-    headers["Authorization"] = "Bearer " + token;
+/** 读取用户自定义 Agnes API Key（直连模式密钥，仅保存在用户本地 localStorage） */
+function getCustomApiKey() {
+  try {
+    var k = localStorage.getItem(CONFIG.CUSTOM_API_KEY_STORAGE_KEY);
+    return k && k.trim().length > 0 ? k.trim() : null;
+  } catch (e) {
+    return null;
   }
+}
+
+function doFetch(historyMessages, model) {
+  // 路由判断：用户填了自定义 Key → 前端直连 Agnes 官方 API（规避 WAF 429 error 1015）；
+  //           否则 → Cloudflare Worker 代理共享密钥模式
+  var customKey = getCustomApiKey();
+  var useDirectMode = !!customKey;
+  var targetUrl = useDirectMode ? CONFIG.AGNES_API_URL : CONFIG.API_URL;
+
+  var headers = { "Content-Type": "application/json" };
+  if (useDirectMode) {
+    // 直连模式：用户自己的 Agnes API Key 作为 Bearer Token
+    headers["Authorization"] = "Bearer " + customKey;
+  } else {
+    // Worker 代理模式：透传 Cloudflare D1 登录态 Token（用于访客/用户配额限制）
+    var token = authToken();
+    if (token) headers["Authorization"] = "Bearer " + token;
+  }
+
   var body = {
     model: model || CONFIG.MODEL,
     messages: historyMessages,
@@ -472,7 +493,7 @@ function doFetch(historyMessages, model) {
     stream: true,
   };
   if (CONFIG.top_p !== undefined) body.top_p = CONFIG.top_p;
-  return fetch(CONFIG.API_URL, {
+  return fetch(targetUrl, {
     method: "POST",
     headers: headers,
     signal: state.abortController.signal,

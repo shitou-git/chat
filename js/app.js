@@ -3,7 +3,7 @@
  * 包含初始化、事件绑定、主题切换等
  */
  
-import { CONFIG } from './config.js?v=1.3.2';
+import { CONFIG } from './config.js?v=1.3.3';
 import {
   state,
   loadSessions,
@@ -19,7 +19,7 @@ import {
   clearCurrentSessionMessages,
   refreshFromServer,
   ensureEmptySession
-} from './state.js?v=1.3.2';
+} from './state.js?v=1.3.3';
 import {
   getDOMElements,
   domRefs as renderRefs,
@@ -32,12 +32,12 @@ import {
   closeSidebar,
   confirmDeleteSession,
   renderSidebarList
-} from './render.js?v=1.3.2';
+} from './render.js?v=1.3.3';
 import {
   sendMessage,
   toggleSendButton,
   stopGeneration
-} from './chat.js?v=1.3.2';
+} from './chat.js?v=1.3.3';
 import {
   initVoices,
   initStreamTTS,
@@ -46,7 +46,7 @@ import {
   pauseStreamTTS,
   resumeStreamTTS,
   getStreamTTSState
-} from './tts.js?v=1.3.2';
+} from './tts.js?v=1.3.3';
 import {
   register,
   login,
@@ -54,7 +54,7 @@ import {
   fetchMe,
   isLoggedIn,
   currentUser
-} from './auth.js?v=1.3.2';
+} from './auth.js?v=1.3.3';
  
 // ================================================================
 // 事件绑定
@@ -514,11 +514,44 @@ function setupAuth() {
     // 渲染语音列表
     renderVoiceList();
 
+    // 加载用户自定义 Agnes API Key
+    loadCustomApiKey();
+
     settingsOverlay.classList.add('show');
   }
 
   function closeSettingsModal() {
+    // 关闭前保存自定义 API Key（即使用户不点击 OK，也会存到本地）
+    saveCustomApiKey();
     if (settingsOverlay) settingsOverlay.classList.remove('show');
+  }
+
+  /** 打开设置时，从 localStorage 回填用户自定义 Agnes API Key */
+  function loadCustomApiKey() {
+    var inputEl = document.getElementById('settingsApiKeyInput');
+    if (!inputEl) return;
+    try {
+      var k = localStorage.getItem(CONFIG.CUSTOM_API_KEY_STORAGE_KEY) || '';
+      inputEl.value = k;
+    } catch (e) {
+      inputEl.value = '';
+    }
+  }
+
+  /** 关闭设置时，保存用户自定义 Agnes API Key 到 localStorage */
+  function saveCustomApiKey() {
+    var inputEl = document.getElementById('settingsApiKeyInput');
+    if (!inputEl) return;
+    try {
+      var v = (inputEl.value || '').trim();
+      if (v.length === 0) {
+        localStorage.removeItem(CONFIG.CUSTOM_API_KEY_STORAGE_KEY);
+      } else {
+        localStorage.setItem(CONFIG.CUSTOM_API_KEY_STORAGE_KEY, v);
+      }
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   function renderModelList() {

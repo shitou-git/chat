@@ -5,13 +5,19 @@
 
 export const CONFIG = {
   /** 应用版本号 */
-  APP_VERSION: "1.3.2",
+  APP_VERSION: "1.3.3",
   APP_NAME: "灵知",
   APP_DESCRIPTION: "基于大语言模型的智能对话助手，支持数学公式渲染、语音播报、多会话管理等功能。",
   MODEL_DISPLAY: "Powered by Sapiens AI",
 
-  /** 聊天 API 代理地址（Cloudflare Worker） */
+  /** 聊天 API 代理地址（Cloudflare Worker）—— 站长共享密钥模式 */
   API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
+
+  /** Agnes 官方 API 直连地址（搭配用户自定义 Key 使用，规避 WAF 429 error 1015） */
+  AGNES_API_URL: "https://apihub.agnes-ai.com/v1/chat/completions",
+
+  /** 用户自定义 Agnes API Key 的 localStorage 存储键（仅保存用户自己的浏览器本地） */
+  CUSTOM_API_KEY_STORAGE_KEY: "lingzhi_custom_api_key",
 
   /** 用户认证与数据同步 API 地址（Cloudflare Worker D1） */
   API_BASE_URL: "https://chat-app-db.chatlz.dpdns.org",
