@@ -32,8 +32,10 @@ export const CONFIG = {
 
   /** 模型配置 */
   MODEL: "agnes-2.5-flash",
-  MAX_TOKENS: 2048,
+  /** 最大输出 token：2.5 Flash 上限 65.5K，设 16K 留足余量又避免超长 */
+  MAX_TOKENS: 16384,
   TEMPERATURE: 0.3,
+  top_p: 0.9,
 
   /** 可选模型列表（设置弹窗下拉菜单用） */
   MODEL_OPTIONS: [
