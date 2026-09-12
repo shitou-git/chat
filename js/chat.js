@@ -36,7 +36,7 @@ import {
   updateHeaderPlayBtn,
   attachSpeakButton as attachSpeakButtonToBubble
 } from './tts.js?v=1.3.3';
-import { authToken, isLoggedIn } from './auth.js?v=1.3.3';
+import { isLoggedIn } from './auth.js?v=1.3.3';
  
 // ================================================================
 // 发送/停止
@@ -163,12 +163,13 @@ async function fetchWithRetry(historyMessages) {
       }
       // 429 友好提示
       if (isRateLimit) {
-        throw new Error("API 请求过于频繁，请稍后再试（错误码：429）");
+        throw new Error("API 请求过于频繁（429）。您使用的是自己的 Agnes API Key 直连模式，请稍后再试，或检查密钥额度。");
       }
       throw new Error("API 请求失败：" + response.status + " " + errorText);
     } catch (err) {
       if (err.name === "AbortError") throw err;
-      if (err.message && err.message.indexOf("请求过于频繁") !== -1) throw err; // 429 提示直接抛出
+      // 未填 Key 或 429 提示直接抛出，不重试
+      if (err.message && (err.message.indexOf("请求过于频繁") !== -1 || err.message.indexOf("请先在") !== -1)) throw err;
       if (retryCount < CONFIG.MAX_RETRIES) {
         retryCount++;
         await delay(CONFIG.RETRY_BASE_DELAY * retryCount);
@@ -469,21 +470,16 @@ function getCustomApiKey() {
 }
 
 function doFetch(historyMessages, model) {
-  // 路由判断：用户填了自定义 Key → 前端直连 Agnes 官方 API（规避 WAF 429 error 1015）；
-  //           否则 → Cloudflare Worker 代理共享密钥模式
-  var customKey = getCustomApiKey();
-  var useDirectMode = !!customKey;
-  var targetUrl = useDirectMode ? CONFIG.AGNES_API_URL : CONFIG.API_URL;
-
-  var headers = { "Content-Type": "application/json" };
-  if (useDirectMode) {
-    // 直连模式：用户自己的 Agnes API Key 作为 Bearer Token
-    headers["Authorization"] = "Bearer " + customKey;
-  } else {
-    // Worker 代理模式：透传 Cloudflare D1 登录态 Token（用于访客/用户配额限制）
-    var token = authToken();
-    if (token) headers["Authorization"] = "Bearer " + token;
+  // 前端直连 Agnes 官方 API（不再经过 Cloudflare Worker 代理）
+  var apiKey = getCustomApiKey();
+  if (!apiKey) {
+    throw new Error("请先在「设置」中填入您的 Agnes API Key（格式 sk-...），密钥仅保存在本地浏览器。");
   }
+
+  var headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer " + apiKey,
+  };
 
   var body = {
     model: model || CONFIG.MODEL,
@@ -493,7 +489,7 @@ function doFetch(historyMessages, model) {
     stream: true,
   };
   if (CONFIG.top_p !== undefined) body.top_p = CONFIG.top_p;
-  return fetch(targetUrl, {
+  return fetch(CONFIG.AGNES_API_URL, {
     method: "POST",
     headers: headers,
     signal: state.abortController.signal,

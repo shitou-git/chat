@@ -276,8 +276,8 @@ aria-label="消息输入框"
 <div class="settings-section-title">自定义 Agnes API Key</div>
 
 <div style="font-size:12px;color:#888;line-height:1.5;margin-bottom:8px;">
-填入您自己的密钥（格式 <code>sk-...</code>），前端将直接请求 Agnes 官方 API（支持跨域），<strong style="color:#2b8a3e;">彻底解决 429 error 1015</strong>。<br>
-密钥仅保存在您本地浏览器，不会上传到任何服务器。留空则继续使用默认共享代理。
+填入您自己的 Agnes API Key（格式 <code>sk-...</code>），前端将<strong style="color:#d6336c;">直接请求 Agnes 官方 API</strong>，不再经过任何中间代理。<br>
+密钥仅保存在您本地浏览器，不会上传到任何服务器。<strong style="color:#d6336c;">必须填写才能发送消息。</strong>
 </div>
 
 <input type="password" id="settingsApiKeyInput"

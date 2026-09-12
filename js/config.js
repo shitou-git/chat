@@ -10,10 +10,7 @@ export const CONFIG = {
   APP_DESCRIPTION: "基于大语言模型的智能对话助手，支持数学公式渲染、语音播报、多会话管理等功能。",
   MODEL_DISPLAY: "Powered by Sapiens AI",
 
-  /** 聊天 API 代理地址（Cloudflare Worker）—— 站长共享密钥模式 */
-  API_URL: "https://api.chatlz.dpdns.org/v1/chat/completions",
-
-  /** Agnes 官方 API 直连地址（搭配用户自定义 Key 使用，规避 WAF 429 error 1015） */
+  /** Agnes 官方 API 直连地址（用户自带 Key，前端直连，无 Worker 代理） */
   AGNES_API_URL: "https://apihub.agnes-ai.com/v1/chat/completions",
 
   /** 用户自定义 Agnes API Key 的 localStorage 存储键（仅保存用户自己的浏览器本地） */
